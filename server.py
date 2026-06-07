@@ -95,6 +95,10 @@ async def _fire_webhook(event: str, payload: dict) -> None:
             await client.post(OMBRE_HOOK_URL, json=body)
     except Exception as e:
         logger.warning(f"Webhook push failed ({event} → {OMBRE_HOOK_URL}): {e}")
+        
+# --- 云同步：启动前从数据库还原记忆 ---
+from cloud_sync import restore_buckets, start_background_sync
+restore_buckets(config["buckets_dir"])
 
 # --- Initialize core components / 初始化核心组件 ---
 embedding_engine = EmbeddingEngine(config)            # Embedding engine first (BucketManager depends on it)
@@ -1909,6 +1913,7 @@ async def api_system_status(request):
 if __name__ == "__main__":
     transport = config.get("transport", "stdio")
     logger.info(f"Ombre Brain starting | transport: {transport}")
+    start_background_sync(config["buckets_dir"])
 
     if transport in ("sse", "streamable-http"):
         import threading

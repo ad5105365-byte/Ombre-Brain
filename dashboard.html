@@ -597,6 +597,135 @@
     .config-row label { width: 100%; }
     .breath-flow { display: none; }
   }
+
+  /* 日记 / 日历 */
+  .diary-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 24px;
+    padding: 16px 24px;
+    background: var(--surface);
+    border-radius: 20px;
+    border: 1px solid var(--border);
+    box-shadow: 4px 4px 10px var(--shadow-dark-subtle), -4px -4px 10px var(--shadow-light);
+  }
+  .diary-header h2 {
+    font-family: 'Cormorant Garamond', serif;
+    font-size: 20px;
+    font-weight: 600;
+    color: var(--accent);
+    letter-spacing: 0.3px;
+  }
+  .diary-nav-btn {
+    background: linear-gradient(145deg, #FAF6ED, #EDE4D3);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+    cursor: pointer;
+    font-size: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+    box-shadow: 3px 3px 6px var(--shadow-dark-subtle), -3px -3px 6px var(--shadow-light);
+    line-height: 1;
+  }
+  .diary-nav-btn:hover { color: var(--accent); border-color: var(--accent); }
+  .diary-calendar {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 8px;
+    margin-bottom: 28px;
+    max-width: 560px;
+  }
+  .diary-weekday {
+    text-align: center;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-light);
+    padding: 8px 0;
+    letter-spacing: 0.5px;
+  }
+  .diary-day {
+    aspect-ratio: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    border-radius: 12px;
+    font-size: 14px;
+    transition: all 0.2s;
+    position: relative;
+    background: transparent;
+    color: var(--text-light);
+    min-height: 48px;
+  }
+  .diary-day.has-entries {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text);
+    cursor: pointer;
+    box-shadow: 3px 3px 6px var(--shadow-dark-subtle), -3px -3px 6px var(--shadow-light);
+  }
+  .diary-day.has-entries:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+    transform: translateY(-1px);
+    box-shadow: 5px 5px 10px var(--shadow-dark), -5px -5px 10px var(--shadow-light);
+  }
+  .diary-day.selected {
+    background: linear-gradient(145deg, var(--accent-light), var(--accent)) !important;
+    border-color: transparent !important;
+    color: #F0EDE4 !important;
+    box-shadow: 6px 6px 12px rgba(40,65,65,0.25), -4px -4px 10px var(--shadow-light) !important;
+  }
+  .diary-day.today { font-weight: 600; }
+  .diary-day.other-month { opacity: 0.3; }
+  .diary-entry-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--accent);
+    margin-top: 3px;
+    flex-shrink: 0;
+  }
+  .diary-day.selected .diary-entry-dot { background: rgba(240,237,228,0.7); }
+  .diary-day-header {
+    font-family: 'Cormorant Garamond', serif;
+    font-size: 17px;
+    font-weight: 600;
+    color: var(--accent);
+    margin-bottom: 14px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--border);
+  }
+  .diary-entries { display: flex; flex-direction: column; gap: 10px; max-width: 720px; }
+  .diary-entry-row {
+    display: flex;
+    gap: 14px;
+    padding: 14px 18px;
+    background: var(--surface);
+    border-radius: 14px;
+    border: 1px solid var(--border);
+    cursor: pointer;
+    transition: all 0.2s;
+    box-shadow: 3px 3px 8px var(--shadow-dark-subtle), -3px -3px 8px var(--shadow-light);
+    align-items: flex-start;
+  }
+  .diary-entry-row:hover {
+    border-color: var(--accent);
+    transform: translateY(-1px);
+    box-shadow: 5px 5px 12px var(--shadow-dark), -5px -5px 12px var(--shadow-light);
+  }
+  .diary-entry-icon { font-size: 18px; flex-shrink: 0; margin-top: 1px; }
+  .diary-entry-content { flex: 1; min-width: 0; }
+  .diary-entry-name { font-size: 14px; font-weight: 500; color: var(--text); margin-bottom: 4px; }
+  .diary-entry-preview { font-size: 12px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .diary-empty { color: var(--text-dim); padding: 40px 0; font-size: 13px; font-weight: 300; }
+
 </style>
 </head>
 <body>
@@ -617,6 +746,7 @@
   <div class="tab" data-tab="config">配置</div>
   <div class="tab" data-tab="import">导入</div>
   <div class="tab" data-tab="settings">设置</div>
+  <div class="tab" data-tab="diary">日记</div>
 </div>
 
 <div class="content" id="list-view">
@@ -773,6 +903,17 @@
       <div id="config-readonly" style="font-size:13px;color:var(--text-dim);line-height:1.8;">加载中…</div>
     </div>
   </div>
+</div>
+
+
+<div class="content" id="diary-view" style="display:none">
+  <div class="diary-header">
+    <button class="diary-nav-btn" id="diary-prev">‹</button>
+    <h2 id="diary-month-label"></h2>
+    <button class="diary-nav-btn" id="diary-next">›</button>
+  </div>
+  <div class="diary-calendar" id="diary-calendar"></div>
+  <div id="diary-day-content"><div class="diary-empty">点击日历中有记录的日期查看当天日记</div></div>
 </div>
 
 <div class="detail-panel" id="detail-panel">
@@ -1052,6 +1193,8 @@ document.querySelectorAll('.tab').forEach(tab => {
     if (target === 'config') loadConfig();
     if (target === 'import') { pollImportStatus(); loadImportResults(); }
     if (target === 'settings') loadSettingsStatus();
+    if (target === 'diary') loadDiaryView();
+    document.getElementById('diary-view').style.display = target === 'diary' ? '' : 'none';
   });
 });
 
@@ -1144,15 +1287,15 @@ function renderBuckets(buckets) {
     var vPos = Math.round(b.valence * 100);
     var modelV = b.model_valence != null ? ' → V' + b.model_valence.toFixed(1) : '';
     var timeAgo = formatTimeAgo(b.last_active || b.created);
-    return '<div class="bucket-row" onclick="showDetail(\'' + b.id + '\')">' +
-      '<span class="icon">' + icon + '</span>' +
-      '<span class="name" title="' + esc(b.name) + '">' + esc(b.name) + '</span>' +
-      '<span class="domain">' + (b.domain || []).join(', ') + '</span>' +
-      '<span class="emotion"><span class="v-bar"><span class="v-dot" style="left:' + vPos + '%"></span></span>' + modelV + '</span>' +
-      '<span class="score">' + b.score.toFixed(2) + '</span>' +
-      '<span class="time">' + timeAgo + '</span>' +
-      '<span class="preview">' + esc(b.content_preview) + '</span>' +
-    '</div>';
+    return '<div class="bucket-row" onclick="showDetail(\'' + b.id + '\')">'
+      + '<span class="icon">' + icon + '</span>'
+      + '<span class="name" title="' + esc(b.name) + '">' + esc(b.name) + '</span>'
+      + '<span class="domain">' + (b.domain || []).join(', ') + '</span>'
+      + '<span class="emotion"><span class="v-bar"><span class="v-dot" style="left:' + vPos + '%"></span></span>' + modelV + '</span>'
+      + '<span class="score">' + b.score.toFixed(2) + '</span>'
+      + '<span class="time">' + timeAgo + '</span>'
+      + '<span class="preview">' + esc(b.content_preview) + '</span>'
+    + '</div>';
   }).join('');
 }
 
@@ -1647,6 +1790,152 @@ async function batchReview(idsJson, action) {
     detectPatterns();
   } catch(e) {}
 }
+
+// ========================================
+// 日记 / 日历
+// ========================================
+var diaryBuckets = [];
+var diaryCurrentYear = 2026;
+var diaryCurrentMonth = 5; // 0-indexed, June=5
+var diarySelectedDate = null;
+var diaryLoaded = false;
+
+async function loadDiaryView() {
+  if (!diaryLoaded) {
+    await fetchDiaryBuckets();
+    diaryLoaded = true;
+  }
+  renderDiaryCalendar();
+}
+
+async function fetchDiaryBuckets() {
+  try {
+    var res = await authFetch(BASE + '/api/search?q=' + encodeURIComponent('日记'));
+    if (!res) return;
+    var data = await res.json();
+    diaryBuckets = Array.isArray(data) ? data.filter(function(b) { return b.name && b.name.includes('日记'); }) : [];
+  } catch(e) {
+    console.error('Diary load failed:', e);
+    diaryBuckets = [];
+  }
+}
+
+function parseDiaryDate(bucket) {
+  // Try 【日记 YYYY-MM-DD】
+  var m = bucket.name.match(/日记[\s＀-￯]*(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return { y: parseInt(m[1]), mo: parseInt(m[2]) - 1, d: parseInt(m[3]) };
+  // Try 【日记 MM-DD】
+  var m2 = bucket.name.match(/日记[\s＀-￯]*(\d{2})-(\d{2})/);
+  if (m2) {
+    var yr = bucket.created ? new Date(bucket.created).getFullYear() : diaryCurrentYear;
+    return { y: yr, mo: parseInt(m2[1]) - 1, d: parseInt(m2[2]) };
+  }
+  if (bucket.created) {
+    var cd = new Date(bucket.created);
+    return { y: cd.getFullYear(), mo: cd.getMonth(), d: cd.getDate() };
+  }
+  return null;
+}
+
+function groupDiaryByDate() {
+  var map = {};
+  diaryBuckets.forEach(function(b) {
+    var dt = parseDiaryDate(b);
+    if (!dt) return;
+    var key = dt.y + '-' + String(dt.mo + 1).padStart(2, '0') + '-' + String(dt.d).padStart(2, '0');
+    if (!map[key]) map[key] = [];
+    map[key].push(b);
+  });
+  return map;
+}
+
+function renderDiaryCalendar() {
+  var diaryMap = groupDiaryByDate();
+  var monthNames = ['一月','二月','三月','四月','五月','六月','七月','八月','九月','十月','十一月','十二月'];
+  document.getElementById('diary-month-label').textContent = diaryCurrentYear + '年' + monthNames[diaryCurrentMonth];
+
+  var today = new Date();
+  var todayKey = today.getFullYear() + '-' + String(today.getMonth()+1).padStart(2,'0') + '-' + String(today.getDate()).padStart(2,'0');
+
+  var firstDay = new Date(diaryCurrentYear, diaryCurrentMonth, 1);
+  var lastDay = new Date(diaryCurrentYear, diaryCurrentMonth + 1, 0);
+  var startDow = firstDay.getDay();
+  startDow = startDow === 0 ? 6 : startDow - 1;
+
+  var html = ['一','二','三','四','五','六','日'].map(function(d) {
+    return '<div class="diary-weekday">' + d + '</div>';
+  }).join('');
+
+  for (var i = 0; i < startDow; i++) {
+    html += '<div class="diary-day other-month"></div>';
+  }
+
+  for (var day = 1; day <= lastDay.getDate(); day++) {
+    var dateKey = diaryCurrentYear + '-' + String(diaryCurrentMonth+1).padStart(2,'0') + '-' + String(day).padStart(2,'0');
+    var hasEntries = !!diaryMap[dateKey];
+    var isToday = dateKey === todayKey;
+    var isSelected = dateKey === diarySelectedDate;
+
+    var cls = 'diary-day';
+    if (hasEntries) cls += ' has-entries';
+    if (isToday) cls += ' today';
+    if (isSelected) cls += ' selected';
+
+    var onclick = hasEntries ? ' onclick="selectDiaryDay(\'' + dateKey + '\')"' : '';
+    var dot = hasEntries ? '<div class="diary-entry-dot"></div>' : '';
+
+    html += '<div class="' + cls + '"' + onclick + '>' + day + dot + '</div>';
+  }
+
+  document.getElementById('diary-calendar').innerHTML = html;
+
+  if (diarySelectedDate) {
+    var entries = diaryMap[diarySelectedDate];
+    if (entries) renderDiaryDayEntries(diarySelectedDate, entries);
+    else document.getElementById('diary-day-content').innerHTML = '<div class="diary-empty">这一天没有日记</div>';
+  }
+}
+
+function selectDiaryDay(dateKey) {
+  diarySelectedDate = dateKey;
+  var diaryMap = groupDiaryByDate();
+  renderDiaryCalendar();
+  if (diaryMap[dateKey]) renderDiaryDayEntries(dateKey, diaryMap[dateKey]);
+}
+
+function renderDiaryDayEntries(dateKey, buckets) {
+  var parts = dateKey.split('-');
+  var dateStr = parts[0] + '年' + parseInt(parts[1]) + '月' + parseInt(parts[2]) + '日';
+  var content = '<div class="diary-day-header">' + dateStr + ' · ' + buckets.length + ' 条</div>';
+  content += '<div class="diary-entries">';
+  buckets.forEach(function(b) {
+    var icon = b.pinned ? '📌' : b.type === 'feel' ? '🫧' : '📖';
+    var displayName = b.name.replace(/【日记[^】]*】/, '').trim() || b.name;
+    content += '<div class="diary-entry-row" onclick="showDetail(\'' + b.id + '\')">' +
+      '<span class="diary-entry-icon">' + icon + '</span>' +
+      '<div class="diary-entry-content">' +
+        '<div class="diary-entry-name">' + esc(displayName) + '</div>' +
+        '<div class="diary-entry-preview">' + esc(b.content_preview || '') + '</div>' +
+      '</div></div>';
+  });
+  content += '</div>';
+  document.getElementById('diary-day-content').innerHTML = content;
+}
+
+document.getElementById('diary-prev').addEventListener('click', function() {
+  diaryCurrentMonth--;
+  if (diaryCurrentMonth < 0) { diaryCurrentMonth = 11; diaryCurrentYear--; }
+  diarySelectedDate = null;
+  renderDiaryCalendar();
+});
+
+document.getElementById('diary-next').addEventListener('click', function() {
+  diaryCurrentMonth++;
+  if (diaryCurrentMonth > 11) { diaryCurrentMonth = 0; diaryCurrentYear++; }
+  diarySelectedDate = null;
+  renderDiaryCalendar();
+});
+
 </script>
 </body>
 </html>

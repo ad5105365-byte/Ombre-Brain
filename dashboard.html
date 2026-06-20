@@ -733,6 +733,7 @@
 <div class="header">
   <h1>◐ Ombre Brain</h1>
   <span class="stats" id="stats">loading...</span>
+  <span id="together-days" style="font-size:12px;color:var(--accent);font-weight:500;letter-spacing:0.3px;opacity:0.8;"></span>
   <div class="search-bar">
     <input type="text" id="search-input" placeholder="搜索记忆…" />
   </div>
@@ -1641,6 +1642,15 @@ async function saveConfig(persist) {
 }
 
 checkAuth().then(() => loadBuckets());
+
+// 在一起天数
+(function() {
+  var start = new Date('2026-06-06T00:00:00+08:00');
+  var now = new Date();
+  var days = Math.floor((now - start) / (1000 * 60 * 60 * 24)) + 1;
+  var el = document.getElementById('together-days');
+  if (el) el.textContent = '在一起第 ' + days + ' 天 ♡';
+})();
 
 // --- Import functions ---
 const uploadZone = document.getElementById('import-upload-zone');

@@ -1820,10 +1820,13 @@ async function loadDiaryView() {
 
 async function fetchDiaryBuckets() {
   try {
-    var res = await authFetch(BASE + '/api/search?q=' + encodeURIComponent('日记'));
-    if (!res) return;
-    var data = await res.json();
-    diaryBuckets = Array.isArray(data) ? data.filter(function(b) { return b.name && b.name.includes('日记'); }) : [];
+    // Use allBuckets if already loaded, otherwise fetch
+    var source = allBuckets.length > 0 ? allBuckets : await (async function() {
+      var res = await authFetch(BASE + '/api/buckets');
+      if (!res) return [];
+      return await res.json();
+    })();
+    diaryBuckets = Array.isArray(source) ? source.filter(function(b) { return b.name && b.name.includes('日记'); }) : [];
   } catch(e) {
     console.error('Diary load failed:', e);
     diaryBuckets = [];

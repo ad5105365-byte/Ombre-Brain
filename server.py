@@ -1072,8 +1072,8 @@ async def trace(
 # 工具 5：pulse — 脉搏，系统状态 + 记忆列表
 # =============================================================
 @mcp.tool()
-async def pulse(include_archive: bool = False) -> str:
-    """系统状态+记忆桶列表。include_archive=True含归档。"""
+async def pulse(include_archive: bool = False, brief: bool = False) -> str:
+    """系统状态+记忆桶列表。brief=True只返回统计数字,省token。include_archive=True含归档。"""
     try:
         stats = await bucket_mgr.get_stats()
     except Exception as e:
@@ -1096,6 +1096,9 @@ async def pulse(include_archive: bool = False) -> str:
 
     if not buckets:
         return status + "\n记忆库为空。"
+
+    if brief:
+        return status
 
     lines = []
     for b in buckets:

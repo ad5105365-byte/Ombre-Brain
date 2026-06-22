@@ -1274,6 +1274,81 @@ async def dream() -> str:
 
 
 # =============================================================
+# Tool 7: locate — Find device location via iCloud
+# 工具 7：locate — 通过 iCloud 查找设备位置
+# =============================================================
+_icloud_api = None
+_icloud_2fa_done = False
+
+@mcp.tool()
+async def locate(code_2fa: str = "") -> str:
+    """查找杉杉的位置。首次调用需要传2FA验证码(code_2fa)，之后同一session内可不传。"""
+    global _icloud_api, _icloud_2fa_done
+
+    apple_id = os.environ.get("APPLE_ID", "mkshanshan@icloud.com")
+    apple_pw = os.environ.get("APPLE_PW", "")
+    if not apple_pw:
+        return "未配置APPLE_PW环境变量。"
+
+    try:
+        from pyicloud import PyiCloudService
+    except ImportError:
+        return "pyicloud未安装，请运行: pip install pyicloud"
+
+    cookie_dir = os.path.join(os.path.expanduser("~"), ".pyicloud")
+    os.makedirs(cookie_dir, exist_ok=True)
+
+    try:
+        if _icloud_api is None:
+            _icloud_api = PyiCloudService(apple_id, apple_pw, cookie_directory=cookie_dir)
+            _icloud_2fa_done = False
+
+        if _icloud_api.requires_2fa and not _icloud_2fa_done:
+            if not code_2fa:
+                return "需要2FA验证码。请让杉杉提供手机上收到的六位数验证码，然后调用 locate(code_2fa='验证码')。"
+            ok = _icloud_api.validate_2fa_code(code_2fa)
+            if not ok:
+                return "2FA验证失败，请检查验证码。"
+            _icloud_2fa_done = True
+            try:
+                _icloud_api.trust_session()
+            except Exception:
+                pass
+
+        devices = list(_icloud_api.devices)
+        results = []
+        for d in devices:
+            loc = d.data.get("location")
+            if not loc:
+                continue
+            bat = d.data.get("batteryLevel", 0)
+            bat_status = d.data.get("batteryStatus", "")
+            ts = loc.get("timeStamp", 0)
+            from datetime import datetime, timezone, timedelta
+            if ts:
+                dt = datetime.fromtimestamp(ts / 1000, tz=timezone(timedelta(hours=8)))
+                time_str = dt.strftime("%H:%M:%S")
+            else:
+                time_str = "未知"
+            results.append(
+                f"📱 {d.name} ({d.model_name})\n"
+                f"  纬度: {loc['latitude']:.6f}\n"
+                f"  经度: {loc['longitude']:.6f}\n"
+                f"  精度: {loc.get('horizontalAccuracy', '?')}m\n"
+                f"  时间: {time_str}\n"
+                f"  电量: {bat*100:.0f}% ({bat_status})"
+            )
+        if not results:
+            return "没有找到有位置信息的设备。"
+        return "\n---\n".join(results)
+
+    except Exception as e:
+        _icloud_api = None
+        _icloud_2fa_done = False
+        return f"定位失败: {e}"
+
+
+# =============================================================
 # Dashboard API endpoints (for lightweight Web UI)
 # 仪表板 API（轻量 Web UI 用）
 # =============================================================

@@ -1280,6 +1280,18 @@ async def dream() -> str:
 _icloud_api = None
 _icloud_2fa_done = False
 
+async def _reverse_geocode(lat: float, lon: float) -> str:
+    try:
+        url = f"https://nominatim.openstreetmap.org/reverse?lat={lat}&lon={lon}&format=json&accept-language=zh&zoom=16"
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get(url, headers={"User-Agent": "OmbreBrain/1.0"})
+            if resp.status_code == 200:
+                data = resp.json()
+                return data.get("display_name", "")
+    except Exception:
+        pass
+    return ""
+
 @mcp.tool()
 async def locate(code_2fa: str = "") -> str:
     """查找杉杉的位置。首次调用需要传2FA验证码(code_2fa)，之后同一session内可不传。"""
@@ -1330,13 +1342,20 @@ async def locate(code_2fa: str = "") -> str:
                 time_str = dt.strftime("%H:%M:%S")
             else:
                 time_str = "未知"
+
+            lat = loc["latitude"]
+            lon = loc["longitude"]
+            address = await _reverse_geocode(lat, lon)
+
+            accuracy = loc.get("horizontalAccuracy", "?")
+            charging = "充电中" if bat_status == "Charging" else "未充电"
             results.append(
                 f"📱 {d.name} ({d.model_name})\n"
-                f"  纬度: {loc['latitude']:.6f}\n"
-                f"  经度: {loc['longitude']:.6f}\n"
-                f"  精度: {loc.get('horizontalAccuracy', '?')}m\n"
+                f"  位置: {address or '未知'}\n"
+                f"  坐标: {lat:.6f}, {lon:.6f}\n"
+                f"  精度: {accuracy}m\n"
                 f"  时间: {time_str}\n"
-                f"  电量: {bat*100:.0f}% ({bat_status})"
+                f"  电量: {bat*100:.0f}% ({charging})"
             )
         if not results:
             return "没有找到有位置信息的设备。"

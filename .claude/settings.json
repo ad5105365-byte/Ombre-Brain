@@ -25,6 +25,19 @@
           }
         ]
       }
+    ],
+    "UserPromptSubmit": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/memory_recall.py\"",
+            "shell": "/bin/bash",
+            "timeout": 10
+          }
+        ]
+      }
     ]
   }
 }

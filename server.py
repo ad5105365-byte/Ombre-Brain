@@ -423,6 +423,76 @@ async def breath_hook(request):
 
 
 # =============================================================
+# /recall-hook endpoint: Real-time memory recall per user message
+# 每轮对话实时记忆召回（UserPromptSubmit hook 调用）
+# =============================================================
+@mcp.custom_route("/recall-hook", methods=["POST"])
+async def recall_hook(request):
+    from starlette.responses import PlainTextResponse
+    try:
+        body = await request.json()
+        user_msg = (body.get("query") or "").strip()
+        if not user_msg or len(user_msg) < 2:
+            return PlainTextResponse("")
+
+        # Search via keyword + vector dual channel
+        matches = await bucket_mgr.search(user_msg, limit=20)
+        # Exclude pinned (already in session context from breath-hook)
+        matches = [b for b in matches if not (b["metadata"].get("pinned") or b["metadata"].get("protected"))]
+        # Exclude dormant
+        matches = [b for b in matches if not b["metadata"].get("dormant")]
+
+        # Vector similarity channel
+        matched_ids = {b["id"] for b in matches}
+        try:
+            vector_results = await embedding_engine.search_similar(user_msg, top_k=20)
+            for bucket_id, sim_score in vector_results:
+                if bucket_id not in matched_ids and sim_score > 0.5:
+                    bucket = await bucket_mgr.get(bucket_id)
+                    if bucket and not (bucket["metadata"].get("pinned") or bucket["metadata"].get("protected")):
+                        if bucket["metadata"].get("dormant"):
+                            continue
+                        bucket["score"] = round(sim_score * 100, 2)
+                        bucket["vector_match"] = True
+                        matches.append(bucket)
+                        matched_ids.add(bucket_id)
+        except Exception:
+            pass
+
+        # Take top 3
+        matches = matches[:3]
+        if not matches:
+            return PlainTextResponse("")
+
+        parts = []
+        token_budget = 3000
+        for b in matches:
+            if token_budget <= 0:
+                break
+            try:
+                clean_meta = {k: v for k, v in b["metadata"].items() if k != "tags"}
+                summary = await dehydrator.dehydrate(strip_wikilinks(b["content"]), clean_meta)
+                summary_tokens = count_tokens_approx(summary)
+                if summary_tokens > token_budget:
+                    break
+                await bucket_mgr.touch(b["id"])
+                prefix = "[语义关联] " if b.get("vector_match") else ""
+                parts.append(f"{prefix}{summary}")
+                token_budget -= summary_tokens
+            except Exception:
+                continue
+
+        if not parts:
+            return PlainTextResponse("")
+
+        result = "<心记浮现>\n" + "\n---\n".join(parts) + "\n</心记浮现>"
+        return PlainTextResponse(result)
+    except Exception as e:
+        logger.warning(f"Recall hook failed: {e}")
+        return PlainTextResponse("")
+
+
+# =============================================================
 # /dream-hook endpoint: Dedicated hook for Dreaming
 # Dreaming 专用挂载点
 # =============================================================

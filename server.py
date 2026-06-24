@@ -1840,6 +1840,30 @@ async def dashboard(request):
         return HTMLResponse("<h1>dashboard.html not found</h1>", status_code=404)
 
 
+@mcp.custom_route("/manifest.json", methods=["GET"])
+async def serve_manifest(request):
+    from starlette.responses import JSONResponse
+    import os, json
+    path = os.path.join(os.path.dirname(__file__), "manifest.json")
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return JSONResponse(json.load(f), headers={"Content-Type": "application/manifest+json"})
+    except FileNotFoundError:
+        return JSONResponse({"error": "not found"}, status_code=404)
+
+
+@mcp.custom_route("/sw.js", methods=["GET"])
+async def serve_sw(request):
+    from starlette.responses import Response
+    import os
+    path = os.path.join(os.path.dirname(__file__), "sw.js")
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return Response(f.read(), media_type="application/javascript")
+    except FileNotFoundError:
+        return Response("// not found", status_code=404, media_type="application/javascript")
+
+
 @mcp.custom_route("/api/config", methods=["GET"])
 async def api_config_get(request):
     """Get current runtime config (safe fields only, API key masked)."""

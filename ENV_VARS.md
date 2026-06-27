@@ -16,6 +16,14 @@
 | `OMBRE_EMBEDDING_MODEL` | 否 | `gemini-embedding-001` | 向量嵌入模型名（覆盖 `embedding.model`） |
 | `OMBRE_EMBEDDING_BASE_URL` | 否 | — | 向量嵌入的 API Base URL（覆盖 `embedding.base_url`；留空则复用脱水配置） |
 
+## 图片持久化（Supabase Storage）
+
+| 变量名 | 必填 | 默认值 | 说明 |
+|--------|------|--------|------|
+| `SUPABASE_URL` | 否 | — | Supabase 项目 URL（如 `https://xxx.supabase.co`），启用图片上传功能 |
+| `SUPABASE_KEY` | 否 | — | Supabase anon/service_role key |
+| `SUPABASE_STORAGE_BUCKET` | 否 | `ombre-images` | Storage bucket 名称 |
+
 ## 说明
 
 - `OMBRE_API_KEY` 也可在 `config.yaml` 的 `dehydration.api_key` / `embedding.api_key` 中设置，但**强烈建议**通过环境变量传入，避免密钥写入文件。

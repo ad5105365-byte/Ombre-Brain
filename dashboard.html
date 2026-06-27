@@ -805,6 +805,51 @@
   <div id="letters-empty" style="display:none;text-align:center;padding:32px 0;color:var(--text-light);font-size:13px;">还没有信 — 等克克写给你 ♡</div>
 </div>
 
+<!-- ═══ Gallery ═══ -->
+<div class="page" id="page-gallery">
+  <div style="text-align:center;padding:20px 0 12px;">
+    <div style="font-size:36px;margin-bottom:4px;">📷</div>
+    <div style="color:var(--text-dim);font-size:13px;">我们的照片</div>
+  </div>
+  <div id="gallery-upload-area" style="margin-bottom:16px;">
+    <div style="background:var(--surface);border:2px dashed var(--border-strong);border-radius:var(--card-radius);padding:20px;text-align:center;cursor:pointer;" id="gallery-drop-zone">
+      <div style="font-size:28px;margin-bottom:4px;">+</div>
+      <div style="font-size:13px;color:var(--text-dim);">点击或拖拽上传照片</div>
+      <input type="file" id="gallery-file-input" accept="image/*" style="display:none" />
+    </div>
+    <div id="gallery-upload-form" style="display:none;margin-top:10px;">
+      <img id="gallery-preview-img" style="max-width:100%;max-height:200px;border-radius:12px;margin-bottom:8px;" />
+      <input type="text" id="gallery-desc-input" placeholder="给照片写句话…" style="width:100%;margin-bottom:8px;" />
+      <input type="text" id="gallery-tags-input" placeholder="标签（逗号分隔，可选）" style="width:100%;margin-bottom:8px;" />
+      <div style="display:flex;gap:8px;">
+        <button class="btn-mint" onclick="doUploadPhoto()" id="gallery-upload-btn">上传</button>
+        <button class="btn-outline" onclick="cancelUpload()">取消</button>
+      </div>
+    </div>
+  </div>
+  <div id="gallery-not-configured" style="display:none;text-align:center;padding:16px;background:var(--surface);border-radius:var(--card-radius);margin-bottom:16px;">
+    <div style="font-size:13px;color:var(--warning);">⚠️ Supabase Storage 未配置</div>
+    <div style="font-size:12px;color:var(--text-dim);margin-top:4px;">需要设置 SUPABASE_URL 和 SUPABASE_KEY 才能上传图片</div>
+    <div style="font-size:12px;color:var(--text-dim);margin-top:2px;">克克可以通过 save_image 工具只存文字描述</div>
+  </div>
+  <div id="gallery-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;"></div>
+  <div class="loading" id="gallery-loading">加载中…</div>
+  <div id="gallery-empty" style="display:none;text-align:center;padding:32px 0;color:var(--text-light);font-size:13px;">还没有照片 ♡</div>
+</div>
+
+<!-- Gallery detail overlay -->
+<div id="gallery-detail-overlay" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.85);z-index:200;overflow-y:auto;">
+  <div style="padding:calc(20px + var(--safe-top)) 16px calc(20px + var(--safe-bottom));">
+    <div style="text-align:right;margin-bottom:8px;">
+      <button onclick="closeGalleryDetail()" style="background:none;border:none;color:white;font-size:28px;cursor:pointer;">✕</button>
+    </div>
+    <img id="gallery-detail-img" style="max-width:100%;border-radius:12px;margin-bottom:12px;" />
+    <div id="gallery-detail-desc" style="color:white;font-size:14px;line-height:1.6;"></div>
+    <div id="gallery-detail-meta" style="color:rgba(255,255,255,0.5);font-size:12px;margin-top:8px;"></div>
+    <button onclick="deletePhoto()" id="gallery-delete-btn" style="margin-top:16px;background:var(--negative);color:white;border:none;padding:8px 20px;border-radius:12px;font-size:13px;cursor:pointer;">删除照片</button>
+  </div>
+</div>
+
 <!-- ═══ Tools (Breath, Network, Config, Import, Settings) ═══ -->
 <div class="page" id="page-tools">
   <!-- Sub-tabs -->
@@ -996,6 +1041,7 @@
   <button class="nav-item active" data-page="memories"><span class="icon">🧠</span>记忆墙</button>
   <button class="nav-item" data-page="diary"><span class="icon">📅</span>日记</button>
   <button class="nav-item" data-page="letters"><span class="icon">💌</span>信箱</button>
+  <button class="nav-item" data-page="gallery"><span class="icon">📷</span>相册</button>
   <button class="nav-item" data-page="tools"><span class="icon">🔧</span>工具</button>
 </div>
 
@@ -1081,6 +1127,7 @@ document.querySelectorAll('.nav-item').forEach(btn => {
     document.getElementById('page-' + target).classList.add('active');
     if (target === 'diary') loadDiaryView();
     if (target === 'letters') loadLetters();
+    if (target === 'gallery') loadGallery();
     if (target === 'tools') { /* already loaded */ }
   });
 });
@@ -1828,6 +1875,128 @@ document.getElementById('diary-next').addEventListener('click', () => {
 });
 
 // ════════════════════════════════════════
+// Gallery
+// ════════════════════════════════════════
+let galleryPhotos = [];
+let galleryCurrentId = null;
+const galleryDropZone = document.getElementById('gallery-drop-zone');
+const galleryFileInput = document.getElementById('gallery-file-input');
+let gallerySelectedFile = null;
+
+galleryDropZone.addEventListener('click', () => galleryFileInput.click());
+galleryDropZone.addEventListener('dragover', e => { e.preventDefault(); galleryDropZone.style.borderColor = 'var(--mint)'; });
+galleryDropZone.addEventListener('dragleave', () => { galleryDropZone.style.borderColor = 'var(--border-strong)'; });
+galleryDropZone.addEventListener('drop', e => {
+  e.preventDefault(); galleryDropZone.style.borderColor = 'var(--border-strong)';
+  if (e.dataTransfer.files.length) prepareUpload(e.dataTransfer.files[0]);
+});
+galleryFileInput.addEventListener('change', () => { if (galleryFileInput.files.length) prepareUpload(galleryFileInput.files[0]); });
+
+function prepareUpload(file) {
+  if (!file.type.startsWith('image/')) { alert('请选择图片文件'); return; }
+  if (file.size > 10 * 1024 * 1024) { alert('文件不能超过 10MB'); return; }
+  gallerySelectedFile = file;
+  const reader = new FileReader();
+  reader.onload = e => {
+    document.getElementById('gallery-preview-img').src = e.target.result;
+    document.getElementById('gallery-upload-form').style.display = '';
+    galleryDropZone.style.display = 'none';
+  };
+  reader.readAsDataURL(file);
+}
+
+function cancelUpload() {
+  gallerySelectedFile = null;
+  document.getElementById('gallery-upload-form').style.display = 'none';
+  galleryDropZone.style.display = '';
+  document.getElementById('gallery-desc-input').value = '';
+  document.getElementById('gallery-tags-input').value = '';
+  galleryFileInput.value = '';
+}
+
+async function doUploadPhoto() {
+  if (!gallerySelectedFile) return;
+  const btn = document.getElementById('gallery-upload-btn');
+  btn.disabled = true; btn.textContent = '上传中…';
+  const fd = new FormData();
+  fd.append('file', gallerySelectedFile);
+  fd.append('description', document.getElementById('gallery-desc-input').value.trim() || '未命名照片');
+  fd.append('tags', document.getElementById('gallery-tags-input').value.trim());
+  try {
+    const resp = await authFetch('/api/images/upload', { method:'POST', body:fd });
+    if (!resp) return;
+    if (resp.ok) { cancelUpload(); loadGallery(); }
+    else { const d = await resp.json(); alert(d.error || '上传失败'); }
+  } catch(e) { alert('上传失败: ' + e.message); }
+  btn.disabled = false; btn.textContent = '上传';
+}
+
+async function loadGallery() {
+  const grid = document.getElementById('gallery-grid');
+  const loading = document.getElementById('gallery-loading');
+  const empty = document.getElementById('gallery-empty');
+  const notCfg = document.getElementById('gallery-not-configured');
+  loading.style.display = ''; empty.style.display = 'none'; notCfg.style.display = 'none';
+  grid.innerHTML = '';
+  try {
+    const resp = await authFetch('/api/images');
+    if (!resp) return;
+    const data = await resp.json();
+    loading.style.display = 'none';
+    galleryPhotos = data.photos || [];
+    if (!data.storage_configured) {
+      notCfg.style.display = '';
+      document.getElementById('gallery-upload-area').style.display = 'none';
+    } else {
+      document.getElementById('gallery-upload-area').style.display = '';
+    }
+    if (!galleryPhotos.length) { empty.style.display = ''; return; }
+    grid.innerHTML = galleryPhotos.map(p => {
+      const thumb = p.image_url
+        ? '<img src="' + esc(p.image_url) + '" style="width:100%;height:140px;object-fit:cover;border-radius:12px 12px 0 0;" loading="lazy" />'
+        : '<div style="width:100%;height:140px;display:flex;align-items:center;justify-content:center;background:var(--mint-pale);border-radius:12px 12px 0 0;font-size:40px;">📝</div>';
+      const name = (p.name || '').replace(/^照片[：:]/, '');
+      return '<div onclick="openGalleryDetail(\'' + p.id + '\')" style="background:var(--surface);border-radius:12px;overflow:hidden;cursor:pointer;box-shadow:0 2px 8px var(--shadow);">'
+        + thumb
+        + '<div style="padding:8px 10px;font-size:12px;color:var(--text-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'
+        + esc(name) + '</div></div>';
+    }).join('');
+  } catch(e) { loading.style.display = 'none'; grid.innerHTML = '<div style="color:var(--negative);text-align:center;font-size:13px;">加载失败</div>'; }
+}
+
+function openGalleryDetail(id) {
+  const photo = galleryPhotos.find(p => p.id === id);
+  if (!photo) return;
+  galleryCurrentId = id;
+  const overlay = document.getElementById('gallery-detail-overlay');
+  const img = document.getElementById('gallery-detail-img');
+  const desc = document.getElementById('gallery-detail-desc');
+  const meta = document.getElementById('gallery-detail-meta');
+  const delBtn = document.getElementById('gallery-delete-btn');
+  if (photo.image_url) { img.src = photo.image_url; img.style.display = ''; }
+  else { img.style.display = 'none'; }
+  const cleanDesc = (photo.description || '').replace(/^##\s*照片\s*\d{4}-\d{2}-\d{2}\s*/, '').trim();
+  desc.textContent = cleanDesc;
+  meta.textContent = photo.created ? photo.created.slice(0, 10) : '';
+  delBtn.style.display = '';
+  overlay.style.display = '';
+}
+
+function closeGalleryDetail() {
+  document.getElementById('gallery-detail-overlay').style.display = 'none';
+  galleryCurrentId = null;
+}
+
+async function deletePhoto() {
+  if (!galleryCurrentId || !confirm('确定删除这张照片？')) return;
+  try {
+    const resp = await authFetch('/api/images/' + galleryCurrentId, { method:'DELETE' });
+    if (resp && resp.ok) { closeGalleryDetail(); loadGallery(); }
+    else { alert('删除失败'); }
+  } catch(e) { alert('删除失败: ' + e.message); }
+}
+
+// ════════════════════════════════════════
 // Utilities
 // ════════════════════════════════════════
 function esc(s) {
@@ -1849,7 +2018,7 @@ function formatTimeAgo(iso) {
 }
 
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') closeDetail();
+  if (e.key === 'Escape') { closeDetail(); closeGalleryDetail(); }
   if (e.key === '/' && !e.ctrlKey && !e.metaKey) { e.preventDefault(); document.getElementById('search-input').focus(); }
 });
 

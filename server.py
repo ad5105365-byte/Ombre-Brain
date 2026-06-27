@@ -42,6 +42,7 @@ import hmac
 import secrets
 import time
 import json as _json_lib
+import base64
 from datetime import datetime, timezone
 import httpx
 
@@ -1616,6 +1617,65 @@ async def archive_session(
 
 
 # =============================================================
+# Tool 9: save_image — Save an image to persistent storage
+# 工具 9：save_image — 保存图片到持久化存储
+# =============================================================
+from image_store import is_configured as _img_configured, upload_image as _img_upload, ensure_bucket as _img_ensure_bucket
+
+@mcp.tool()
+async def save_image(
+    description: str,
+    image_base64: str = "",
+    filename: str = "photo.jpg",
+    content_type: str = "image/jpeg",
+    tags: str = "",
+) -> str:
+    """保存一张图片到相册。description必填(照片描述，会存进记忆桶)。image_base64可选(图片base64数据)。tags可选(逗号分隔标签)。没有图片数据时只存描述。"""
+    if not description or not description.strip():
+        return "description 不能为空。"
+
+    now = datetime.now(timezone.utc).isoformat()
+    tag_list = ["照片", "photo"] + [t.strip() for t in tags.split(",") if t.strip()]
+    image_url = ""
+
+    if image_base64.strip():
+        if not _img_configured():
+            return "Supabase Storage 未配置。请设置 SUPABASE_URL 和 SUPABASE_KEY 环境变量。"
+        try:
+            await _img_ensure_bucket()
+            data = base64.b64decode(image_base64)
+            result = await _img_upload(data, filename, content_type)
+            image_url = result["url"]
+        except Exception as e:
+            return f"图片上传失败: {e}"
+
+    content_parts = [f"## 照片 {now[:10]}\n\n{description.strip()}"]
+    if image_url:
+        content_parts.append(f"\n![photo]({image_url})")
+
+    content = "\n".join(content_parts)
+    try:
+        bucket_id = await bucket_mgr.create(
+            content=content,
+            tags=tag_list,
+            importance=6,
+            domain=["照片"],
+            valence=0.6,
+            arousal=0.3,
+            name=f"照片：{description.strip()[:30]}",
+            bucket_type="permanent",
+        )
+        try:
+            await embedding_engine.generate_and_store(bucket_id, content)
+        except Exception:
+            pass
+        url_note = f" | 图片已上传" if image_url else " | 仅描述（无图片数据）"
+        return f"已保存照片 → {bucket_id}{url_note}"
+    except Exception as e:
+        return f"保存失败: {e}"
+
+
+# =============================================================
 # Dashboard API endpoints (for lightweight Web UI)
 # 仪表板 API（轻量 Web UI 用）
 # =============================================================
@@ -2486,6 +2546,138 @@ async def api_bark_test(request):
             return JSONResponse({"error": "测试失败", "detail": resp.text}, status_code=resp.status_code)
     except Exception as e:
         return JSONResponse({"error": f"测试失败: {e}"}, status_code=500)
+
+
+# =============================================================
+# Image Gallery API — list / upload / delete photos
+# 相册 API — 照片列表 / 上传 / 删除
+# =============================================================
+from image_store import (
+    is_configured as _img_is_configured,
+    list_images as _img_list,
+    upload_image as _img_upload_file,
+    delete_image as _img_delete,
+    ensure_bucket as _img_ensure,
+)
+
+
+@mcp.custom_route("/api/images", methods=["GET"])
+async def api_images_list(request):
+    """List all photos: OB buckets (descriptions) + Supabase Storage (files)."""
+    from starlette.responses import JSONResponse
+    err = _require_auth(request)
+    if err: return err
+    try:
+        all_buckets = await bucket_mgr.list_all(include_archive=True)
+        photo_buckets = [
+            b for b in all_buckets
+            if "照片" in (b["metadata"].get("domain") or [])
+            or "photo" in (b["metadata"].get("tags") or [])
+        ]
+        photo_buckets.sort(key=lambda b: b["metadata"].get("created", ""), reverse=True)
+        result = []
+        for b in photo_buckets:
+            meta = b.get("metadata", {})
+            content = b.get("content", "")
+            img_url = ""
+            for line in content.split("\n"):
+                if line.strip().startswith("!["):
+                    start = line.find("(")
+                    end = line.rfind(")")
+                    if start != -1 and end != -1:
+                        img_url = line[start + 1:end]
+                        break
+            result.append({
+                "id": b["id"],
+                "name": meta.get("name", b["id"]),
+                "description": strip_wikilinks(content).replace(img_url, "").strip(),
+                "image_url": img_url,
+                "created": meta.get("created", ""),
+                "tags": meta.get("tags", []),
+            })
+        return JSONResponse({"photos": result, "storage_configured": _img_is_configured()})
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@mcp.custom_route("/api/images/upload", methods=["POST"])
+async def api_images_upload(request):
+    """Upload a photo from the dashboard (multipart form: file + description)."""
+    from starlette.responses import JSONResponse
+    err = _require_auth(request)
+    if err: return err
+    if not _img_is_configured():
+        return JSONResponse({"error": "Supabase Storage 未配置"}, status_code=400)
+    try:
+        form = await request.form()
+        file = form.get("file")
+        description = form.get("description", "").strip() or "未命名照片"
+        tags_str = form.get("tags", "")
+
+        if not file:
+            return JSONResponse({"error": "未选择文件"}, status_code=400)
+
+        data = await file.read()
+        if len(data) > 10 * 1024 * 1024:
+            return JSONResponse({"error": "文件不能超过 10MB"}, status_code=400)
+
+        await _img_ensure()
+        result = await _img_upload_file(data, file.filename or "photo.jpg", file.content_type or "image/jpeg")
+
+        now = datetime.now(timezone.utc).isoformat()
+        tag_list = ["照片", "photo"] + [t.strip() for t in tags_str.split(",") if t.strip()]
+        content = f"## 照片 {now[:10]}\n\n{description}\n\n![photo]({result['url']})"
+
+        bucket_id = await bucket_mgr.create(
+            content=content,
+            tags=tag_list,
+            importance=6,
+            domain=["照片"],
+            valence=0.6,
+            arousal=0.3,
+            name=f"照片：{description[:30]}",
+            bucket_type="permanent",
+        )
+        try:
+            await embedding_engine.generate_and_store(bucket_id, content)
+        except Exception:
+            pass
+
+        return JSONResponse({"ok": True, "id": bucket_id, "url": result["url"]})
+    except Exception as e:
+        return JSONResponse({"error": f"上传失败: {e}"}, status_code=500)
+
+
+@mcp.custom_route("/api/images/{bucket_id}", methods=["DELETE"])
+async def api_images_delete(request):
+    """Delete a photo bucket and its storage file."""
+    from starlette.responses import JSONResponse
+    err = _require_auth(request)
+    if err: return err
+    bucket_id = request.path_params["bucket_id"]
+    try:
+        bucket = await bucket_mgr.get(bucket_id)
+        if not bucket:
+            return JSONResponse({"error": "not found"}, status_code=404)
+        content = bucket.get("content", "")
+        for line in content.split("\n"):
+            if line.strip().startswith("!["):
+                start = line.find("(")
+                end = line.rfind(")")
+                if start != -1 and end != -1:
+                    url = line[start + 1:end]
+                    parts = url.split(f"/storage/v1/object/public/")
+                    if len(parts) == 2:
+                        bucket_and_path = parts[1]
+                        slash = bucket_and_path.find("/")
+                        if slash != -1:
+                            storage_path = bucket_and_path[slash + 1:]
+                            await _img_delete(storage_path)
+                    break
+        await bucket_mgr.delete(bucket_id)
+        return JSONResponse({"ok": True})
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
 
 
 # --- Entry point / 启动入口 ---

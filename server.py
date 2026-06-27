@@ -2558,7 +2558,31 @@ from image_store import (
     upload_image as _img_upload_file,
     delete_image as _img_delete,
     ensure_bucket as _img_ensure,
+    create_signed_url as _img_sign_url,
 )
+
+
+def _extract_storage_path(content: str) -> str:
+    for line in content.split("\n"):
+        if line.strip().startswith("!["):
+            s = line.find("("); e = line.rfind(")")
+            if s != -1 and e != -1:
+                url = line[s+1:e]
+                marker = "/storage/v1/object/"
+                idx = url.find(marker)
+                if idx != -1:
+                    rest = url[idx + len(marker):]
+                    if rest.startswith("public/"):
+                        rest = rest[len("public/"):]
+                    elif rest.startswith("sign/"):
+                        rest = rest[len("sign/"):]
+                    slash = rest.find("/")
+                    if slash != -1:
+                        path = rest[slash + 1:]
+                        if "?" in path:
+                            path = path[:path.index("?")]
+                        return path
+    return ""
 
 
 @mcp.custom_route("/api/images", methods=["GET"])
@@ -2575,22 +2599,39 @@ async def api_images_list(request):
             or "photo" in (b["metadata"].get("tags") or [])
         ]
         photo_buckets.sort(key=lambda b: b["metadata"].get("created", ""), reverse=True)
+        storage_paths = []
+        bucket_path_map = {}
+        for b in photo_buckets:
+            content = b.get("content", "")
+            path = _extract_storage_path(content)
+            if path:
+                storage_paths.append(path)
+                bucket_path_map[b["id"]] = path
+
+        signed_urls = {}
+        if storage_paths and _img_is_configured():
+            try:
+                from image_store import create_signed_urls as _img_sign_urls
+                signed_urls = await _img_sign_urls(storage_paths)
+            except Exception:
+                pass
+
         result = []
         for b in photo_buckets:
             meta = b.get("metadata", {})
             content = b.get("content", "")
-            img_url = ""
+            path = bucket_path_map.get(b["id"], "")
+            img_url = signed_urls.get(path, "") if path else ""
+            raw_url = ""
             for line in content.split("\n"):
                 if line.strip().startswith("!["):
-                    start = line.find("(")
-                    end = line.rfind(")")
-                    if start != -1 and end != -1:
-                        img_url = line[start + 1:end]
-                        break
+                    s = line.find("("); e = line.rfind(")")
+                    if s != -1 and e != -1: raw_url = line[s+1:e]
+                    break
             result.append({
                 "id": b["id"],
                 "name": meta.get("name", b["id"]),
-                "description": strip_wikilinks(content).replace(img_url, "").strip(),
+                "description": strip_wikilinks(content).replace(raw_url, "").strip(),
                 "image_url": img_url,
                 "created": meta.get("created", ""),
                 "tags": meta.get("tags", []),
@@ -2660,20 +2701,9 @@ async def api_images_delete(request):
         if not bucket:
             return JSONResponse({"error": "not found"}, status_code=404)
         content = bucket.get("content", "")
-        for line in content.split("\n"):
-            if line.strip().startswith("!["):
-                start = line.find("(")
-                end = line.rfind(")")
-                if start != -1 and end != -1:
-                    url = line[start + 1:end]
-                    parts = url.split(f"/storage/v1/object/public/")
-                    if len(parts) == 2:
-                        bucket_and_path = parts[1]
-                        slash = bucket_and_path.find("/")
-                        if slash != -1:
-                            storage_path = bucket_and_path[slash + 1:]
-                            await _img_delete(storage_path)
-                    break
+        storage_path = _extract_storage_path(content)
+        if storage_path:
+            await _img_delete(storage_path)
         await bucket_mgr.delete(bucket_id)
         return JSONResponse({"ok": True})
     except Exception as e:

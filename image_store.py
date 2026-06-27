@@ -50,9 +50,9 @@ async def ensure_bucket():
             await client.post(
                 f"{SUPABASE_URL}/storage/v1/bucket",
                 headers={**_headers(), "Content-Type": "application/json"},
-                json={"id": SUPABASE_BUCKET, "name": SUPABASE_BUCKET, "public": True},
+                json={"id": SUPABASE_BUCKET, "name": SUPABASE_BUCKET, "public": False},
             )
-            logger.info(f"Created Supabase Storage bucket: {SUPABASE_BUCKET}")
+            logger.info(f"Created Supabase Storage bucket (private): {SUPABASE_BUCKET}")
 
 
 async def upload_image(data: bytes, filename: str, content_type: str = "image/jpeg") -> dict:
@@ -71,8 +71,8 @@ async def upload_image(data: bytes, filename: str, content_type: str = "image/jp
         if resp.status_code not in (200, 201):
             raise RuntimeError(f"上传失败: {resp.status_code} {resp.text}")
 
-    public_url = f"{SUPABASE_URL}/storage/v1/object/public/{SUPABASE_BUCKET}/{storage_path}"
-    return {"path": storage_path, "url": public_url}
+    canonical_url = f"{SUPABASE_URL}/storage/v1/object/{SUPABASE_BUCKET}/{storage_path}"
+    return {"path": storage_path, "url": canonical_url}
 
 
 async def list_images() -> list[dict]:
@@ -94,11 +94,49 @@ async def list_images() -> list[dict]:
             name = item.get("name", "")
             result.append({
                 "name": name,
-                "url": f"{SUPABASE_URL}/storage/v1/object/public/{SUPABASE_BUCKET}/{name}",
                 "created_at": item.get("created_at", ""),
                 "size": item.get("metadata", {}).get("size", 0),
             })
         return result
+
+
+async def create_signed_url(path: str, expires_in: int = 3600) -> str:
+    if not is_configured():
+        return ""
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        resp = await client.post(
+            f"{SUPABASE_URL}/storage/v1/object/sign/{SUPABASE_BUCKET}/{path}",
+            headers={**_headers(), "Content-Type": "application/json"},
+            json={"expiresIn": expires_in},
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            token = data.get("signedURL", "")
+            if token.startswith("/"):
+                return f"{SUPABASE_URL}/storage/v1{token}"
+            return token
+    return f"{SUPABASE_URL}/storage/v1/object/{SUPABASE_BUCKET}/{path}"
+
+
+async def create_signed_urls(paths: list[str], expires_in: int = 3600) -> dict[str, str]:
+    if not is_configured() or not paths:
+        return {}
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        resp = await client.post(
+            f"{SUPABASE_URL}/storage/v1/object/sign/{SUPABASE_BUCKET}",
+            headers={**_headers(), "Content-Type": "application/json"},
+            json={"expiresIn": expires_in, "paths": paths},
+        )
+        if resp.status_code == 200:
+            result = {}
+            for item in resp.json():
+                path = item.get("path", "")
+                signed = item.get("signedURL", "")
+                if signed.startswith("/"):
+                    signed = f"{SUPABASE_URL}/storage/v1{signed}"
+                result[path] = signed
+            return result
+    return {}
 
 
 async def delete_image(path: str) -> bool:
@@ -113,4 +151,4 @@ async def delete_image(path: str) -> bool:
 
 
 async def get_image_url(path: str) -> str:
-    return f"{SUPABASE_URL}/storage/v1/object/public/{SUPABASE_BUCKET}/{path}"
+    return await create_signed_url(path)

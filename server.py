@@ -2261,6 +2261,84 @@ async def api_import_review(request):
 # /api/status — system status for Dashboard settings tab
 # /api/status — Dashboard 设置页用系统状态
 # =============================================================
+# =============================================================
+# Letters API — store and retrieve letters as special buckets
+# 信箱 API — 信件作为特殊记忆桶存取
+# =============================================================
+@mcp.custom_route("/api/letters", methods=["GET"])
+async def api_letters_list(request):
+    """List all letter-type buckets, newest first."""
+    from starlette.responses import JSONResponse
+    err = _require_auth(request)
+    if err: return err
+    try:
+        all_buckets = await bucket_mgr.list_all(include_archive=True)
+        letters = [
+            b for b in all_buckets
+            if "信" in (b["metadata"].get("domain") or [])
+            or "letter" in (b["metadata"].get("domain") or [])
+            or (b["metadata"].get("name") or "").startswith("信：")
+            or (b["metadata"].get("name") or "").startswith("Letter:")
+        ]
+        letters.sort(key=lambda b: b["metadata"].get("created", ""), reverse=True)
+        result = []
+        for b in letters:
+            meta = b.get("metadata", {})
+            result.append({
+                "id": b["id"],
+                "name": meta.get("name", b["id"]),
+                "content": strip_wikilinks(b.get("content", "")),
+                "content_preview": strip_wikilinks(b.get("content", ""))[:200],
+                "valence": meta.get("valence", 0.5),
+                "arousal": meta.get("arousal", 0.3),
+                "created": meta.get("created", ""),
+                "last_active": meta.get("last_active", ""),
+                "importance": meta.get("importance", 5),
+            })
+        return JSONResponse(result)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@mcp.custom_route("/api/letters", methods=["POST"])
+async def api_letters_store(request):
+    """Store a letter as a special bucket with domain '信'."""
+    from starlette.responses import JSONResponse
+    err = _require_auth(request)
+    if err: return err
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "Invalid JSON"}, status_code=400)
+    content = body.get("content", "").strip()
+    subject = body.get("subject", "").strip()
+    if not content:
+        return JSONResponse({"error": "内容不能为空"}, status_code=400)
+
+    name = f"信：{subject}" if subject else f"信：{content[:20]}…"
+    valence = body.get("valence", 0.7)
+    arousal = body.get("arousal", 0.4)
+
+    try:
+        bucket_id = await bucket_mgr.create(
+            content=content,
+            tags=["letter", "信"],
+            importance=body.get("importance", 8),
+            domain=["信"],
+            valence=valence,
+            arousal=arousal,
+            name=name,
+            bucket_type="permanent",
+        )
+        try:
+            await embedding_engine.generate_and_store(bucket_id, content)
+        except Exception:
+            pass
+        return JSONResponse({"ok": True, "id": bucket_id, "name": name})
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
 @mcp.custom_route("/api/status", methods=["GET"])
 async def api_system_status(request):
     """Return detailed system status for the settings panel."""
@@ -2283,6 +2361,131 @@ async def api_system_status(request):
         })
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
+
+
+# =============================================================
+# Bark Push Notification API
+# Bark 推送通知 API
+# =============================================================
+_BARK_KEY_FILE = os.path.join(config["buckets_dir"], ".bark_key")
+
+
+def _get_bark_key() -> str:
+    env_key = os.environ.get("BARK_DEVICE_KEY", "").strip()
+    if env_key:
+        return env_key
+    try:
+        if os.path.exists(_BARK_KEY_FILE):
+            with open(_BARK_KEY_FILE, "r") as f:
+                return f.read().strip()
+    except Exception:
+        pass
+    return ""
+
+
+def _save_bark_key(key: str) -> None:
+    os.makedirs(os.path.dirname(_BARK_KEY_FILE), exist_ok=True)
+    with open(_BARK_KEY_FILE, "w") as f:
+        f.write(key.strip())
+
+
+@mcp.custom_route("/api/bark/config", methods=["GET"])
+async def api_bark_config_get(request):
+    from starlette.responses import JSONResponse
+    err = _require_auth(request)
+    if err: return err
+    key = _get_bark_key()
+    masked = f"{key[:4]}...{key[-4:]}" if len(key) > 8 else ("***" if key else "")
+    return JSONResponse({
+        "configured": bool(key),
+        "key_masked": masked,
+        "source": "env" if os.environ.get("BARK_DEVICE_KEY", "").strip() else ("file" if key else ""),
+    })
+
+
+@mcp.custom_route("/api/bark/config", methods=["POST"])
+async def api_bark_config_set(request):
+    from starlette.responses import JSONResponse
+    err = _require_auth(request)
+    if err: return err
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "Invalid JSON"}, status_code=400)
+    key = body.get("key", "").strip()
+    if not key:
+        return JSONResponse({"error": "key 不能为空"}, status_code=400)
+    try:
+        _save_bark_key(key)
+        return JSONResponse({"ok": True})
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@mcp.custom_route("/api/bark/push", methods=["POST"])
+async def api_bark_push(request):
+    """Push a notification via Bark."""
+    from starlette.responses import JSONResponse
+    err = _require_auth(request)
+    if err: return err
+    key = _get_bark_key()
+    if not key:
+        return JSONResponse({"error": "Bark 未配置，请先设置 Device Key"}, status_code=400)
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "Invalid JSON"}, status_code=400)
+
+    title = body.get("title", "克克")
+    message = body.get("message", "").strip()
+    if not message:
+        return JSONResponse({"error": "message 不能为空"}, status_code=400)
+
+    bark_url = body.get("server", "https://api.day.app")
+    group = body.get("group", "克克的家")
+    icon = body.get("icon", "")
+
+    try:
+        payload = {
+            "title": title,
+            "body": message,
+            "group": group,
+            "sound": "minuet",
+        }
+        if icon:
+            payload["icon"] = icon
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(f"{bark_url}/{key}", json=payload)
+            result = resp.json()
+            if resp.status_code == 200:
+                return JSONResponse({"ok": True, "result": result})
+            return JSONResponse({"error": "Bark 推送失败", "detail": result}, status_code=resp.status_code)
+    except Exception as e:
+        return JSONResponse({"error": f"推送失败: {e}"}, status_code=500)
+
+
+@mcp.custom_route("/api/bark/test", methods=["POST"])
+async def api_bark_test(request):
+    """Send a test notification via Bark."""
+    from starlette.responses import JSONResponse
+    err = _require_auth(request)
+    if err: return err
+    key = _get_bark_key()
+    if not key:
+        return JSONResponse({"error": "Bark 未配置"}, status_code=400)
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(f"https://api.day.app/{key}", json={
+                "title": "克克的家",
+                "body": "通知测试成功！如果你看到这条，说明 Bark 配置正确 ✓",
+                "group": "克克的家",
+                "sound": "minuet",
+            })
+            if resp.status_code == 200:
+                return JSONResponse({"ok": True})
+            return JSONResponse({"error": "测试失败", "detail": resp.text}, status_code=resp.status_code)
+    except Exception as e:
+        return JSONResponse({"error": f"测试失败: {e}"}, status_code=500)
 
 
 # --- Entry point / 启动入口 ---

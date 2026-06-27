@@ -6,31 +6,31 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="克克的家">
-<meta name="theme-color" content="#E8F5E9">
+<meta name="theme-color" content="#E2F1EE">
 <link rel="manifest" href="/manifest.json">
-<link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect fill='%2381C784' rx='20' width='100' height='100'/><text y='68' x='50' text-anchor='middle' font-size='52'>🏡</text></svg>">
+<link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect fill='%237CC5BF' rx='20' width='100' height='100'/><text y='68' x='50' text-anchor='middle' font-size='52'>🏡</text></svg>">
 <title>克克的家</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
   :root {
-    --mint: #81C784;
-    --mint-light: #C8E6C9;
-    --mint-pale: #E8F5E9;
-    --mint-deep: #4CAF50;
-    --mint-dark: #2E7D32;
-    --bg: #F1F8E9;
+    --mint: #7CC5BF;
+    --mint-light: #B2DDD8;
+    --mint-pale: #E2F1EE;
+    --mint-deep: #4BA9A1;
+    --mint-dark: #2D847D;
+    --bg: #E8F4F2;
     --surface: rgba(255, 255, 255, 0.75);
     --surface-solid: #FFFFFF;
-    --border: rgba(129, 199, 132, 0.3);
-    --border-strong: rgba(129, 199, 132, 0.5);
-    --text: #2E3A2E;
-    --text-dim: #6B7B6B;
-    --text-light: #9CAF9C;
-    --positive: #66BB6A;
+    --border: rgba(124, 197, 191, 0.3);
+    --border-strong: rgba(124, 197, 191, 0.5);
+    --text: #2E3A38;
+    --text-dim: #6B7B79;
+    --text-light: #9CAFAC;
+    --positive: #66BBB5;
     --negative: #E57373;
     --warning: #FFB74D;
-    --shadow: rgba(129, 199, 132, 0.15);
-    --shadow-strong: rgba(129, 199, 132, 0.25);
+    --shadow: rgba(124, 197, 191, 0.15);
+    --shadow-strong: rgba(124, 197, 191, 0.25);
     --card-radius: 20px;
     --safe-top: env(safe-area-inset-top, 0px);
     --safe-bottom: env(safe-area-inset-bottom, 0px);
@@ -54,7 +54,7 @@
   /* ─── Header ─── */
   .header {
     padding: calc(16px + var(--safe-top)) 20px 14px;
-    background: linear-gradient(135deg, var(--mint-pale) 0%, #DCEDC8 100%);
+    background: linear-gradient(135deg, var(--mint-pale) 0%, #D0EBE7 100%);
     position: sticky;
     top: 0;
     z-index: 50;
@@ -102,7 +102,7 @@
     outline: none;
     border-color: var(--mint);
     background: rgba(255,255,255,0.9);
-    box-shadow: 0 0 0 3px rgba(129,199,132,0.15);
+    box-shadow: 0 0 0 3px rgba(124,197,191,0.15);
   }
   .search-box input::placeholder { color: var(--text-light); }
   .search-box::before {
@@ -543,7 +543,7 @@
   .config-row input:focus, .config-row select:focus {
     outline: none;
     border-color: var(--mint);
-    box-shadow: 0 0 0 3px rgba(129,199,132,0.15);
+    box-shadow: 0 0 0 3px rgba(124,197,191,0.15);
   }
   .btn-mint {
     padding: 10px 24px;
@@ -678,7 +678,7 @@
     position: fixed;
     inset: 0;
     z-index: 9999;
-    background: linear-gradient(135deg, var(--mint-pale), #DCEDC8);
+    background: linear-gradient(135deg, var(--mint-pale), #D0EBE7);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -796,12 +796,13 @@
 
 <!-- ═══ Letters ═══ -->
 <div class="page" id="page-letters">
-  <div style="text-align:center;padding:40px 0;">
-    <div style="font-size:48px;margin-bottom:12px;">💌</div>
-    <div style="color:var(--text-dim);font-size:14px;">克克写给你的信</div>
-    <div id="letters-list" style="margin-top:20px;"></div>
-    <div class="loading" id="letters-loading">加载中…</div>
+  <div style="text-align:center;padding:20px 0 12px;">
+    <div style="font-size:36px;margin-bottom:4px;">💌</div>
+    <div style="color:var(--text-dim);font-size:13px;">克克写给你的信</div>
   </div>
+  <div id="letters-list"></div>
+  <div class="loading" id="letters-loading">加载中…</div>
+  <div id="letters-empty" style="display:none;text-align:center;padding:32px 0;color:var(--text-light);font-size:13px;">还没有信 — 等克克写给你 ♡</div>
 </div>
 
 <!-- ═══ Tools (Breath, Network, Config, Import, Settings) ═══ -->
@@ -945,6 +946,16 @@
         <button class="btn-mint" onclick="saveHostVault()" style="padding:6px 16px;">保存</button>
         <button class="btn-outline" onclick="loadHostVault()" style="padding:6px 12px;font-size:12px;">刷新</button>
         <span id="settings-host-vault-msg" style="font-size:12px;"></span>
+      </div>
+    </div>
+    <div class="settings-section">
+      <h3>📱 Bark 推送通知</h3>
+      <p style="font-size:12px;color:var(--text-dim);margin-bottom:8px;">在 App Store 下载 Bark，打开后复制 Device Key 粘贴到下方</p>
+      <div class="config-row"><label>Device Key</label><input type="text" id="settings-bark-key" placeholder="粘贴 Bark Key…" /></div>
+      <div style="display:flex;gap:8px;align-items:center;margin-top:4px;">
+        <button class="btn-mint" onclick="saveBarkKey()" style="padding:6px 16px;">保存</button>
+        <button class="btn-outline" onclick="testBark()" style="padding:6px 12px;font-size:12px;">📲 测试推送</button>
+        <span id="settings-bark-msg" style="font-size:12px;"></span>
       </div>
     </div>
     <div class="settings-section">
@@ -1235,12 +1246,60 @@ function closeDetail() {
 // ════════════════════════════════════════
 let lettersLoaded = false;
 async function loadLetters() {
-  if (lettersLoaded) return;
   const list = document.getElementById('letters-list');
   const loading = document.getElementById('letters-loading');
-  loading.textContent = '信箱功能需要通过克克的聊天窗口使用 💌';
-  loading.style.color = 'var(--text-dim)';
-  lettersLoaded = true;
+  const empty = document.getElementById('letters-empty');
+  loading.style.display = '';
+  empty.style.display = 'none';
+  list.innerHTML = '';
+  try {
+    const res = await authFetch(BASE + '/api/letters');
+    if (!res) return;
+    const letters = await res.json();
+    loading.style.display = 'none';
+    if (!letters.length) { empty.style.display = ''; return; }
+    list.innerHTML = letters.map(l => {
+      const date = (l.created || '').slice(0, 10);
+      const name = (l.name || '').replace(/^信[：:]/, '').trim() || '无题';
+      const preview = (l.content_preview || '').replace(/^##?\s*.*\n*/,'');
+      return '<div class="letter-card" onclick="showLetterDetail(\'' + l.id + '\')">'
+        + '<div class="letter-card-head">'
+          + '<span class="letter-icon">✉️</span>'
+          + '<span class="letter-subject">' + esc(name) + '</span>'
+          + '<span class="letter-date">' + date + '</span>'
+        + '</div>'
+        + '<div class="letter-snippet">' + esc(preview) + '</div>'
+      + '</div>';
+    }).join('');
+    lettersLoaded = true;
+  } catch(e) {
+    loading.textContent = '加载失败';
+    loading.style.color = 'var(--negative)';
+  }
+}
+
+async function showLetterDetail(id) {
+  const panel = document.getElementById('detail-panel');
+  const overlay = document.getElementById('detail-overlay');
+  const content = document.getElementById('detail-content');
+  content.innerHTML = '<div class="loading">加载中…</div>';
+  panel.classList.add('open');
+  overlay.classList.add('open');
+  try {
+    const res = await authFetch(BASE + '/api/bucket/' + id);
+    if (!res) return;
+    const b = await res.json();
+    const m = b.metadata || {};
+    const name = (m.name || '').replace(/^信[：:]/, '').trim() || '无题';
+    const date = (m.created || '').slice(0, 10);
+    content.innerHTML =
+      '<div style="text-align:center;margin-bottom:16px;">'
+        + '<div style="font-size:32px;">✉️</div>'
+        + '<h2 style="color:var(--mint-dark);font-size:18px;margin:8px 0 4px;">' + esc(name) + '</h2>'
+        + '<div style="font-size:12px;color:var(--text-light);">' + date + '</div>'
+      + '</div>'
+      + '<div class="detail-content-box" style="white-space:pre-wrap;line-height:2;">' + esc(b.content) + '</div>';
+  } catch(e) { content.innerHTML = '<div class="loading">加载失败</div>'; }
 }
 
 // ════════════════════════════════════════
@@ -1319,12 +1378,12 @@ function drawNetwork(ctx, W, H, data) {
     ctx.beginPath();
     ctx.moveTo(a.x, a.y);
     ctx.lineTo(b.x, b.y);
-    ctx.strokeStyle = 'rgba(129, 199, 132, ' + (e.similarity * 0.4) + ')';
+    ctx.strokeStyle = 'rgba(124, 197, 191,' + (e.similarity * 0.4) + ')';
     ctx.lineWidth = Math.max(0.5, e.similarity * 2);
     ctx.stroke();
   });
 
-  const colors = { dynamic:'#2E7D32', permanent:'#FFB74D', feel:'#E57373', archived:'#9CAF9C' };
+  const colors = { dynamic:'#2D847D', permanent:'#FFB74D', feel:'#E57373', archived:'#9CAFAC' };
   nodes.forEach(n => {
     const p = positions[n.id];
     const r = Math.max(4, Math.min(14, n.score * 0.8));
@@ -1343,7 +1402,7 @@ function drawNetwork(ctx, W, H, data) {
     if (n.pinned) { ctx.strokeStyle = '#FFB74D'; ctx.lineWidth = 2; ctx.stroke(); }
 
     const name = n.name.length > 10 ? n.name.slice(0, 10) + '…' : n.name;
-    ctx.fillStyle = '#2E3A2E';
+    ctx.fillStyle = '#2E3A38';
     ctx.font = '11px Quicksand, sans-serif';
     ctx.textAlign = 'center';
     ctx.fillText(name, p.x, p.y + r + 14);
@@ -1450,6 +1509,46 @@ async function saveConfig(persist) {
 // ════════════════════════════════════════
 // Settings
 // ════════════════════════════════════════
+async function loadBarkConfig() {
+  const msg = document.getElementById('settings-bark-msg');
+  try {
+    const resp = await authFetch('/api/bark/config');
+    if (!resp) return;
+    const d = await resp.json();
+    if (d.configured) {
+      msg.style.color = 'var(--mint-deep)';
+      msg.textContent = '已配置 ✓ (' + d.key_masked + ')';
+    } else {
+      msg.style.color = 'var(--text-light)';
+      msg.textContent = '未配置';
+    }
+  } catch(e) {}
+}
+
+async function saveBarkKey() {
+  const key = document.getElementById('settings-bark-key').value.trim();
+  const msg = document.getElementById('settings-bark-msg');
+  if (!key) { msg.style.color = 'var(--negative)'; msg.textContent = '请输入 Key'; return; }
+  msg.style.color = 'var(--text-dim)'; msg.textContent = '保存中…';
+  try {
+    const resp = await authFetch('/api/bark/config', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({key}) });
+    if (!resp) return;
+    if (resp.ok) { msg.style.color = 'var(--mint-deep)'; msg.textContent = '已保存 ✓'; document.getElementById('settings-bark-key').value = ''; loadBarkConfig(); }
+    else { const d = await resp.json(); msg.style.color = 'var(--negative)'; msg.textContent = d.error || '保存失败'; }
+  } catch(e) { msg.style.color = 'var(--negative)'; msg.textContent = '保存失败'; }
+}
+
+async function testBark() {
+  const msg = document.getElementById('settings-bark-msg');
+  msg.style.color = 'var(--text-dim)'; msg.textContent = '发送中…';
+  try {
+    const resp = await authFetch('/api/bark/test', { method:'POST' });
+    if (!resp) return;
+    if (resp.ok) { msg.style.color = 'var(--mint-deep)'; msg.textContent = '测试推送已发送 ✓'; }
+    else { const d = await resp.json(); msg.style.color = 'var(--negative)'; msg.textContent = d.error || '发送失败'; }
+  } catch(e) { msg.style.color = 'var(--negative)'; msg.textContent = '发送失败'; }
+}
+
 async function loadSettingsStatus() {
   const el = document.getElementById('settings-status');
   try {
@@ -1464,6 +1563,7 @@ async function loadSettingsStatus() {
       '<b>向量搜索</b>：' + (d.embedding_enabled ? '已启用' : '未启用');
   } catch(e) { el.textContent = '加载失败'; }
   loadHostVault();
+  loadBarkConfig();
 }
 
 async function loadHostVault() {

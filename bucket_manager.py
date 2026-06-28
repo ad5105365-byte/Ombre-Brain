@@ -475,27 +475,13 @@ class BucketManager:
         else:
             candidates = all_buckets
 
-        # --- Layer 1.5: embedding pre-filter (optional, reduces multi-dim ranking set) ---
-        # --- 第1.5层：embedding 预筛（可选，缩小精排候选集）---
-        if self.embedding_engine and self.embedding_engine.enabled:
-            try:
-                vector_results = await self.embedding_engine.search_similar(query, top_k=50)
-                if vector_results:
-                    vector_ids = {bid for bid, _ in vector_results}
-                    emb_candidates = [b for b in candidates if b["id"] in vector_ids]
-                    if emb_candidates:
-                        emb_ids = {b["id"] for b in emb_candidates}
-                        q_lower = query.lower()
-                        keyword_hits = [
-                            b for b in candidates
-                            if b["id"] not in emb_ids
-                            and (q_lower in (b["metadata"].get("name") or "").lower()
-                                 or any(q_lower in d.lower() for d in b["metadata"].get("domain", []))
-                                 or any(q_lower in t.lower() for t in b["metadata"].get("tags", [])))
-                        ]
-                        candidates = emb_candidates + keyword_hits
-            except Exception as e:
-                logger.warning(f"Embedding pre-filter failed, using fuzzy only / embedding 预筛失败: {e}")
+        # --- Layer 1.5: embedding boost (optional, adds vector-matched buckets) ---
+        # --- 第1.5层：embedding 加分（可选，确保向量匹配的桶进入候选集）---
+        # NOTE: Do NOT replace candidate set here. breath()/recall_hook() already
+        # run a separate additive vector channel. This layer only ensures
+        # vector-matched buckets from other directories are included.
+        # 不要在这里替换候选集。breath()/recall_hook() 已经有独立的向量通道。
+        # 这一层只确保跨目录的向量匹配桶被加入候选。
 
         # --- Layer 2: weighted multi-dim ranking ---
         # --- 第二层：多维加权精排 ---

@@ -373,6 +373,7 @@ async def health_check(request):
 @mcp.custom_route("/breath-hook", methods=["GET"])
 async def breath_hook(request):
     from starlette.responses import PlainTextResponse
+    _ensure_reminder_loop()
     try:
         all_buckets = await bucket_mgr.list_all(include_archive=False)
         # pinned
@@ -438,8 +439,6 @@ async def recall_hook(request):
 
         # Search via keyword + vector dual channel
         matches = await bucket_mgr.search(user_msg, limit=20)
-        # Exclude pinned (already in session context from breath-hook)
-        matches = [b for b in matches if not (b["metadata"].get("pinned") or b["metadata"].get("protected"))]
         # Exclude dormant
         matches = [b for b in matches if not b["metadata"].get("dormant")]
 
@@ -450,7 +449,7 @@ async def recall_hook(request):
             for bucket_id, sim_score in vector_results:
                 if bucket_id not in matched_ids and sim_score > 0.5:
                     bucket = await bucket_mgr.get(bucket_id)
-                    if bucket and not (bucket["metadata"].get("pinned") or bucket["metadata"].get("protected")):
+                    if bucket:
                         if bucket["metadata"].get("dormant"):
                             continue
                         bucket["score"] = round(sim_score * 100, 2)
@@ -870,8 +869,8 @@ async def breath(
         logger.error(f"Search failed / 检索失败: {e}")
         return "检索过程出错，请稍后重试。"
 
-    # --- Exclude pinned/protected from search results (they surface in surfacing mode) ---
-    matches = [b for b in matches if not (b["metadata"].get("pinned") or b["metadata"].get("protected"))]
+    # --- Pinned/protected: keep in query search results ---
+    # 主动搜索时不排除钉选桶，用户搜了就该找得到
 
     # --- Exclude dormant unless requested ---
     if not include_dormant:
@@ -895,7 +894,7 @@ async def breath(
         for bucket_id, sim_score in vector_results:
             if bucket_id not in matched_ids and sim_score > 0.5:
                 bucket = await bucket_mgr.get(bucket_id)
-                if bucket and not (bucket["metadata"].get("pinned") or bucket["metadata"].get("protected")):
+                if bucket:
                     if not include_dormant and bucket["metadata"].get("dormant"):
                         continue
                     bucket["score"] = round(sim_score * 100, 2)
@@ -1673,6 +1672,151 @@ async def save_image(
         return f"已保存照片 → {bucket_id}{url_note}"
     except Exception as e:
         return f"保存失败: {e}"
+
+
+# =============================================================
+# Reminder system — server-side follow-up via Bark push
+# 回访系统 — 服务端定时提醒，到时间用 Bark 推送
+#
+# CronCreate 依赖 Claude session 存活，远程环境闲置会被回收。
+# 这个系统跑在 OB 服务端，不依赖任何 session。
+# =============================================================
+_REMINDERS_FILE = os.path.join(config["buckets_dir"], ".reminders.json")
+_reminders: list[dict] = []
+_reminder_loop_started = False
+
+
+def _load_reminders():
+    global _reminders
+    try:
+        if os.path.exists(_REMINDERS_FILE):
+            with open(_REMINDERS_FILE, "r", encoding="utf-8") as f:
+                _reminders = _json_lib.loads(f.read())
+    except Exception:
+        _reminders = []
+
+
+def _save_reminders():
+    try:
+        os.makedirs(os.path.dirname(_REMINDERS_FILE), exist_ok=True)
+        with open(_REMINDERS_FILE, "w", encoding="utf-8") as f:
+            f.write(_json_lib.dumps(_reminders, ensure_ascii=False, indent=2))
+    except Exception as e:
+        logger.warning(f"Failed to save reminders: {e}")
+
+
+async def _send_bark(message: str, title: str = "克克"):
+    key = _get_bark_key()
+    if not key:
+        logger.warning("Reminder due but Bark not configured")
+        return False
+    try:
+        icon = "https://cdn.jsdelivr.net/gh/twitter/twemoji@latest/assets/72x72/1f436.png"
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(f"https://api.day.app/{key}", json={
+                "title": title,
+                "body": message,
+                "group": "克克",
+                "sound": "minuet",
+                "icon": icon,
+            })
+            return resp.status_code == 200
+    except Exception as e:
+        logger.warning(f"Bark push failed for reminder: {e}")
+        return False
+
+
+async def _reminder_check_loop():
+    global _reminders
+    while True:
+        try:
+            await asyncio.sleep(60)
+            now = time.time()
+            due = [r for r in _reminders if r["fire_at"] <= now]
+            if not due:
+                continue
+            for r in due:
+                await _send_bark(r["message"], r.get("title", "克克"))
+                logger.info(f"Reminder fired: {r['message'][:50]}")
+            _reminders = [r for r in _reminders if r["fire_at"] > now]
+            _save_reminders()
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            logger.warning(f"Reminder loop error: {e}")
+
+
+def _ensure_reminder_loop():
+    global _reminder_loop_started
+    if not _reminder_loop_started:
+        _reminder_loop_started = True
+        _load_reminders()
+        asyncio.create_task(_reminder_check_loop())
+
+
+@mcp.tool()
+async def remind(
+    message: str,
+    minutes: int = 15,
+    title: str = "克克",
+) -> str:
+    """设置回访提醒。到时间后会通过Bark推送通知。message=提醒内容，minutes=几分钟后提醒(默认15)，title=推送标题(默认"克克")。"""
+    if not message or not message.strip():
+        return "message 不能为空。"
+    if minutes < 1:
+        return "最少1分钟。"
+    if minutes > 1440:
+        return "最多24小时（1440分钟）。"
+
+    _ensure_reminder_loop()
+
+    fire_at = time.time() + minutes * 60
+    fire_time = datetime.fromtimestamp(fire_at).strftime("%H:%M")
+    reminder = {
+        "message": message.strip(),
+        "title": title,
+        "minutes": minutes,
+        "fire_at": fire_at,
+        "created": datetime.now(timezone.utc).isoformat(),
+    }
+    _reminders.append(reminder)
+    _save_reminders()
+
+    key = _get_bark_key()
+    if not key:
+        return f"已设置 {minutes} 分钟后提醒（约 {fire_time}），但 Bark 未配置，到时候推不出去。请先配置 Bark Device Key。"
+    return f"已设置 {minutes} 分钟后提醒（约 {fire_time}）→ 「{message.strip()[:40]}」"
+
+
+@mcp.custom_route("/api/reminders", methods=["GET"])
+async def api_reminders_list(request):
+    from starlette.responses import JSONResponse
+    err = _require_auth(request)
+    if err: return err
+    _ensure_reminder_loop()
+    now = time.time()
+    result = []
+    for r in _reminders:
+        remaining = max(0, int((r["fire_at"] - now) / 60))
+        result.append({
+            "message": r["message"],
+            "title": r.get("title", "克克"),
+            "minutes_remaining": remaining,
+            "fire_at": datetime.fromtimestamp(r["fire_at"]).strftime("%H:%M"),
+            "created": r.get("created", ""),
+        })
+    return JSONResponse(result)
+
+
+@mcp.custom_route("/api/reminders", methods=["DELETE"])
+async def api_reminders_clear(request):
+    from starlette.responses import JSONResponse
+    err = _require_auth(request)
+    if err: return err
+    global _reminders
+    _reminders = []
+    _save_reminders()
+    return JSONResponse({"ok": True})
 
 
 # =============================================================

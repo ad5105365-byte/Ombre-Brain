@@ -483,9 +483,17 @@ class BucketManager:
                 if vector_results:
                     vector_ids = {bid for bid, _ in vector_results}
                     emb_candidates = [b for b in candidates if b["id"] in vector_ids]
-                    if emb_candidates:  # only replace if there's non-empty overlap
-                        candidates = emb_candidates
-                    # else: keep original candidates as fallback
+                    if emb_candidates:
+                        emb_ids = {b["id"] for b in emb_candidates}
+                        q_lower = query.lower()
+                        keyword_hits = [
+                            b for b in candidates
+                            if b["id"] not in emb_ids
+                            and (q_lower in (b["metadata"].get("name") or "").lower()
+                                 or any(q_lower in d.lower() for d in b["metadata"].get("domain", []))
+                                 or any(q_lower in t.lower() for t in b["metadata"].get("tags", [])))
+                        ]
+                        candidates = emb_candidates + keyword_hits
             except Exception as e:
                 logger.warning(f"Embedding pre-filter failed, using fuzzy only / embedding 预筛失败: {e}")
 

@@ -438,8 +438,6 @@ async def recall_hook(request):
 
         # Search via keyword + vector dual channel
         matches = await bucket_mgr.search(user_msg, limit=20)
-        # Exclude pinned (already in session context from breath-hook)
-        matches = [b for b in matches if not (b["metadata"].get("pinned") or b["metadata"].get("protected"))]
         # Exclude dormant
         matches = [b for b in matches if not b["metadata"].get("dormant")]
 
@@ -450,7 +448,7 @@ async def recall_hook(request):
             for bucket_id, sim_score in vector_results:
                 if bucket_id not in matched_ids and sim_score > 0.5:
                     bucket = await bucket_mgr.get(bucket_id)
-                    if bucket and not (bucket["metadata"].get("pinned") or bucket["metadata"].get("protected")):
+                    if bucket:
                         if bucket["metadata"].get("dormant"):
                             continue
                         bucket["score"] = round(sim_score * 100, 2)
@@ -870,8 +868,8 @@ async def breath(
         logger.error(f"Search failed / 检索失败: {e}")
         return "检索过程出错，请稍后重试。"
 
-    # --- Exclude pinned/protected from search results (they surface in surfacing mode) ---
-    matches = [b for b in matches if not (b["metadata"].get("pinned") or b["metadata"].get("protected"))]
+    # --- Pinned/protected: keep in query search results ---
+    # 主动搜索时不排除钉选桶，用户搜了就该找得到
 
     # --- Exclude dormant unless requested ---
     if not include_dormant:
@@ -895,7 +893,7 @@ async def breath(
         for bucket_id, sim_score in vector_results:
             if bucket_id not in matched_ids and sim_score > 0.5:
                 bucket = await bucket_mgr.get(bucket_id)
-                if bucket and not (bucket["metadata"].get("pinned") or bucket["metadata"].get("protected")):
+                if bucket:
                     if not include_dormant and bucket["metadata"].get("dormant"):
                         continue
                     bucket["score"] = round(sim_score * 100, 2)

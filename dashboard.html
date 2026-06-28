@@ -1036,7 +1036,7 @@
   </div>
 </div>
 
-<<!-- ═══ Bottom Navigation ═══ -->
+<!-- ═══ Bottom Navigation ═══ -->
 <div class="bottom-nav">
   <button class="nav-item active" data-page="memories"><span class="icon">🧠</span>记忆墙</button>
   <button class="nav-item" data-page="diary"><span class="icon">📅</span>日记</button>
@@ -1720,10 +1720,10 @@ async function loadImportResults() {
     container.innerHTML = data.buckets.map(b => `
       <div id="ir-${b.id}" style="background:var(--mint-pale);border-radius:14px;padding:12px;margin:8px 0;">
         <div style="display:flex;justify-content:space-between;align-items:center;">
-          <b style="font-size:14px;">${b.name || b.id}</b>
-          <span style="font-size:11px;color:var(--text-dim);">${b.type} | ${(b.domain||[]).join(',')}</span>
+          <b style="font-size:14px;">${esc(b.name || b.id)}</b>
+          <span style="font-size:11px;color:var(--text-dim);">${esc(b.type)} | ${esc((b.domain||[]).join(','))}</span>
         </div>
-        <p style="font-size:13px;margin:6px 0;white-space:pre-wrap;">${b.content}</p>
+        <p style="font-size:13px;margin:6px 0;white-space:pre-wrap;">${esc(b.content)}</p>
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
           <button class="btn-outline" style="padding:4px 10px;font-size:11px;" onclick="reviewAction('${b.id}','pin')">📌 固定</button>
           <button class="btn-outline" style="padding:4px 10px;font-size:11px;" onclick="reviewAction('${b.id}','important')">⭐ 重要</button>
@@ -1744,8 +1744,8 @@ async function detectPatterns() {
     if (!data.patterns || !data.patterns.length) { container.innerHTML = '<p style="color:var(--text-dim);font-size:13px;">未检测到</p>'; return; }
     container.innerHTML = data.patterns.map(p => `
       <div style="background:var(--mint-pale);border-radius:14px;padding:12px;margin:8px 0;">
-        <b>${p.pattern_name}</b> <span style="font-size:12px;color:var(--text-dim);">(${p.count}次)</span>
-        <p style="font-size:13px;margin:6px 0;">${p.pattern_content}</p>
+        <b>${esc(p.pattern_name)}</b> <span style="font-size:12px;color:var(--text-dim);">(${p.count}次)</span>
+        <p style="font-size:13px;margin:6px 0;">${esc(p.pattern_content)}</p>
       </div>
     `).join('');
   } catch(e) { container.innerHTML = '<p style="color:var(--negative);font-size:13px;">检测失败</p>'; }

@@ -2502,8 +2502,9 @@ async def api_bark_push(request):
         return JSONResponse({"error": "message 不能为空"}, status_code=400)
 
     bark_url = body.get("server", "https://api.day.app")
-    group = body.get("group", "克克的家")
-    icon = body.get("icon", "")
+    group = body.get("group", "克克")
+    _DEFAULT_BARK_ICON = "https://cdn.jsdelivr.net/gh/twitter/twemoji@latest/assets/72x72/1f436.png"
+    icon = body.get("icon", _DEFAULT_BARK_ICON)
 
     try:
         payload = {
@@ -2511,9 +2512,8 @@ async def api_bark_push(request):
             "body": message,
             "group": group,
             "sound": "minuet",
+            "icon": icon,
         }
-        if icon:
-            payload["icon"] = icon
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.post(f"{bark_url}/{key}", json=payload)
             result = resp.json()
@@ -2536,10 +2536,11 @@ async def api_bark_test(request):
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.post(f"https://api.day.app/{key}", json={
-                "title": "克克的家",
+                "title": "克克",
                 "body": "通知测试成功！如果你看到这条，说明 Bark 配置正确 ✓",
-                "group": "克克的家",
+                "group": "克克",
                 "sound": "minuet",
+                "icon": "https://cdn.jsdelivr.net/gh/twitter/twemoji@latest/assets/72x72/1f436.png",
             })
             if resp.status_code == 200:
                 return JSONResponse({"ok": True})

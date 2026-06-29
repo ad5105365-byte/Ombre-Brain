@@ -1704,17 +1704,35 @@ def _load_reminders():
         if os.path.exists(_REMINDERS_FILE):
             with open(_REMINDERS_FILE, "r", encoding="utf-8") as f:
                 _reminders = _json_lib.loads(f.read())
+                if _reminders:
+                    return
     except Exception:
+        pass
+    db_val = get_config("reminders")
+    if db_val:
+        try:
+            _reminders = _json_lib.loads(db_val)
+            try:
+                os.makedirs(os.path.dirname(_REMINDERS_FILE), exist_ok=True)
+                with open(_REMINDERS_FILE, "w", encoding="utf-8") as f:
+                    f.write(db_val)
+            except Exception:
+                pass
+        except Exception:
+            _reminders = []
+    else:
         _reminders = []
 
 
 def _save_reminders():
+    data = _json_lib.dumps(_reminders, ensure_ascii=False, indent=2)
     try:
         os.makedirs(os.path.dirname(_REMINDERS_FILE), exist_ok=True)
         with open(_REMINDERS_FILE, "w", encoding="utf-8") as f:
-            f.write(_json_lib.dumps(_reminders, ensure_ascii=False, indent=2))
+            f.write(data)
     except Exception as e:
-        logger.warning(f"Failed to save reminders: {e}")
+        logger.warning(f"Failed to save reminders to file: {e}")
+    set_config("reminders", data)
 
 
 async def _send_bark(message: str, title: str = "克克"):

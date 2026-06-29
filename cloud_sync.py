@@ -151,6 +151,66 @@ def _push(files):
     logger.info(f"云同步完成：{len(files)} 条记忆已写入数据库。")
 
 
+CONFIG_TABLE = "ombre_config"
+
+
+def _ensure_config_table(cur):
+    cur.execute(
+        f"""
+        CREATE TABLE IF NOT EXISTS {CONFIG_TABLE} (
+            key        TEXT PRIMARY KEY,
+            value      TEXT NOT NULL,
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+        """
+    )
+
+
+def get_config(key: str) -> str | None:
+    if not DB_URL:
+        return None
+    try:
+        conn = _connect()
+        try:
+            with conn, conn.cursor() as cur:
+                _ensure_config_table(cur)
+                cur.execute(
+                    f"SELECT value FROM {CONFIG_TABLE} WHERE key = %s", (key,)
+                )
+                row = cur.fetchone()
+                return row[0] if row else None
+        finally:
+            conn.close()
+    except Exception as e:
+        logger.warning(f"读取配置 {key} 失败: {e}")
+        return None
+
+
+def set_config(key: str, value: str) -> bool:
+    if not DB_URL:
+        return False
+    try:
+        conn = _connect()
+        try:
+            with conn, conn.cursor() as cur:
+                _ensure_config_table(cur)
+                cur.execute(
+                    f"""
+                    INSERT INTO {CONFIG_TABLE} (key, value, updated_at)
+                    VALUES (%s, %s, now())
+                    ON CONFLICT (key)
+                    DO UPDATE SET value = EXCLUDED.value, updated_at = now()
+                    """,
+                    (key, value),
+                )
+        finally:
+            conn.close()
+        return True
+    except Exception as e:
+        logger.warning(f"保存配置 {key} 失败: {e}")
+        return False
+
+
 def start_background_sync(buckets_dir, interval=15):
     """启动后台线程，定期把本地记忆变化同步到数据库。"""
     if not DB_URL:

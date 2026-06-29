@@ -143,8 +143,20 @@ def _bucket_summary_line(b: dict, score: float = 0.0) -> str:
 
 
 # --- 云同步：启动前从数据库还原记忆 ---
-from cloud_sync import restore_buckets, start_background_sync
+from cloud_sync import restore_buckets, start_background_sync, get_config, set_config
 restore_buckets(config["buckets_dir"])
+
+# --- 从数据库恢复 Bark device key（Render 重启后本地文件会丢失）---
+_restored_bark = get_config("bark_device_key")
+if _restored_bark:
+    _bark_file = os.path.join(config["buckets_dir"], ".bark_key")
+    try:
+        os.makedirs(os.path.dirname(_bark_file), exist_ok=True)
+        with open(_bark_file, "w") as _f:
+            _f.write(_restored_bark)
+        logger.info("Bark device key 已从数据库恢复")
+    except Exception as _e:
+        logger.warning(f"Bark device key 恢复失败: {_e}")
 
 # --- Initialize core components / 初始化核心组件 ---
 embedding_engine = EmbeddingEngine(config)            # Embedding engine first (BucketManager depends on it)
@@ -1692,17 +1704,35 @@ def _load_reminders():
         if os.path.exists(_REMINDERS_FILE):
             with open(_REMINDERS_FILE, "r", encoding="utf-8") as f:
                 _reminders = _json_lib.loads(f.read())
+                if _reminders:
+                    return
     except Exception:
+        pass
+    db_val = get_config("reminders")
+    if db_val:
+        try:
+            _reminders = _json_lib.loads(db_val)
+            try:
+                os.makedirs(os.path.dirname(_REMINDERS_FILE), exist_ok=True)
+                with open(_REMINDERS_FILE, "w", encoding="utf-8") as f:
+                    f.write(db_val)
+            except Exception:
+                pass
+        except Exception:
+            _reminders = []
+    else:
         _reminders = []
 
 
 def _save_reminders():
+    data = _json_lib.dumps(_reminders, ensure_ascii=False, indent=2)
     try:
         os.makedirs(os.path.dirname(_REMINDERS_FILE), exist_ok=True)
         with open(_REMINDERS_FILE, "w", encoding="utf-8") as f:
-            f.write(_json_lib.dumps(_reminders, ensure_ascii=False, indent=2))
+            f.write(data)
     except Exception as e:
-        logger.warning(f"Failed to save reminders: {e}")
+        logger.warning(f"Failed to save reminders to file: {e}")
+    set_config("reminders", data)
 
 
 async def _send_bark(message: str, title: str = "克克"):
@@ -2581,9 +2611,20 @@ def _get_bark_key() -> str:
     try:
         if os.path.exists(_BARK_KEY_FILE):
             with open(_BARK_KEY_FILE, "r") as f:
-                return f.read().strip()
+                val = f.read().strip()
+                if val:
+                    return val
     except Exception:
         pass
+    db_key = get_config("bark_device_key")
+    if db_key:
+        try:
+            os.makedirs(os.path.dirname(_BARK_KEY_FILE), exist_ok=True)
+            with open(_BARK_KEY_FILE, "w") as f:
+                f.write(db_key)
+        except Exception:
+            pass
+        return db_key
     return ""
 
 
@@ -2591,6 +2632,7 @@ def _save_bark_key(key: str) -> None:
     os.makedirs(os.path.dirname(_BARK_KEY_FILE), exist_ok=True)
     with open(_BARK_KEY_FILE, "w") as f:
         f.write(key.strip())
+    set_config("bark_device_key", key.strip())
 
 
 @mcp.custom_route("/api/bark/config", methods=["GET"])

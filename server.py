@@ -1213,6 +1213,7 @@ async def grow(content: str) -> str:
     # --- 逐条合并或新建（单条失败不影响其他）---
     for item in items:
         try:
+            item_name = _diary_name(item.get("name", ""), diary_date)
             result_name, is_merged = await _merge_or_create(
                 content=item["content"],
                 tags=item.get("tags", []),
@@ -1220,14 +1221,14 @@ async def grow(content: str) -> str:
                 domain=item.get("domain", ["未分类"]),
                 valence=item.get("valence", 0.5),
                 arousal=item.get("arousal", 0.3),
-                name=_diary_name(item.get("name", ""), diary_date),
+                name=item_name,
             )
 
             if is_merged:
                 results.append(f"📎{result_name}")
                 merged += 1
             else:
-                results.append(f"📝{result_name}")
+                results.append(f"📝{item_name or result_name}")
                 created += 1
         except Exception as e:
             logger.warning(

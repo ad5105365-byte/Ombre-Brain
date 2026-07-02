@@ -33,6 +33,7 @@
 # ============================================================
 
 import os
+import re
 import sys
 import random
 import logging
@@ -43,7 +44,7 @@ import secrets
 import time
 import json as _json_lib
 import base64
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import httpx
 
 
@@ -1127,6 +1128,33 @@ async def hold(
 # Tool 3: grow — Grow, fragments become memories
 # 工具 3：grow — 生长，一天的碎片长成记忆
 # =============================================================
+_DIARY_TZ = timezone(timedelta(hours=8))  # 杉杉在深圳 / dashboard dates are hers
+
+
+def _extract_diary_date(content: str) -> str:
+    """Return YYYY-MM-DD when content opens with a diary marker, else ''."""
+    head = content.strip()[:80]
+    # Must OPEN with the marker — merely mentioning 日记 mid-text doesn't count
+    # 必须以日记标记开头——正文里提到"日记"两个字不算
+    if not re.match(r"^【?\s*日记", head):
+        return ""
+    m = re.search(r"(\d{4})\s*[-./年]\s*(\d{1,2})\s*[-./月]\s*(\d{1,2})", head)
+    if m:
+        return f"{m.group(1)}-{int(m.group(2)):02d}-{int(m.group(3)):02d}"
+    now = datetime.now(_DIARY_TZ)
+    m = re.search(r"(\d{1,2})\s*[-./月]\s*(\d{1,2})", head)
+    if m:
+        return f"{now.year}-{int(m.group(1)):02d}-{int(m.group(2)):02d}"
+    return now.strftime("%Y-%m-%d")
+
+
+def _diary_name(name: str, diary_date: str) -> str:
+    """Re-attach the calendar prefix digest tends to strip from bucket names."""
+    if not diary_date or "日记" in (name or ""):
+        return name
+    return f"【日记 {diary_date}】{name or ''}".strip()
+
+
 @mcp.tool()
 async def grow(content: str) -> str:
     """日记归档,自动拆分为多桶。短内容(<30字)走快速路径。"""
@@ -1134,6 +1162,11 @@ async def grow(content: str) -> str:
 
     if not content or not content.strip():
         return "内容为空，无法整理。"
+
+    # Detect diary marker up front: digest rewrites bucket names and used to
+    # drop the 【日记 YYYY-MM-DD】 prefix the dashboard calendar keys on
+    # 提前识别日记标记：digest 重写桶名时会吃掉日历依赖的日期前缀，这里焊回去
+    diary_date = _extract_diary_date(content)
 
     # --- Short content fast path: skip digest, use hold logic directly ---
     # --- 短内容快速路径：跳过 digest 拆分，直接走 hold 逻辑省一次 API ---
@@ -1157,7 +1190,7 @@ async def grow(content: str) -> str:
             domain=analysis.get("domain", ["未分类"]),
             valence=analysis.get("valence", 0.5),
             arousal=analysis.get("arousal", 0.3),
-            name=analysis.get("suggested_name", ""),
+            name=_diary_name(analysis.get("suggested_name", ""), diary_date),
         )
         action = "合并" if is_merged else "新建"
         return f"{action} → {result_name} | {','.join(analysis.get('domain', []))} V{analysis.get('valence', 0.5):.1f}/A{analysis.get('arousal', 0.3):.1f}"
@@ -1187,14 +1220,14 @@ async def grow(content: str) -> str:
                 domain=item.get("domain", ["未分类"]),
                 valence=item.get("valence", 0.5),
                 arousal=item.get("arousal", 0.3),
-                name=item.get("name", ""),
+                name=_diary_name(item.get("name", ""), diary_date),
             )
 
             if is_merged:
                 results.append(f"📎{result_name}")
                 merged += 1
             else:
-                results.append(f"📝{item.get('name', result_name)}")
+                results.append(f"📝{result_name}")
                 created += 1
         except Exception as e:
             logger.warning(
@@ -2536,7 +2569,10 @@ async def api_letters_list(request):
             b for b in all_buckets
             if "信" in (b["metadata"].get("domain") or [])
             or "letter" in (b["metadata"].get("domain") or [])
+            or "letter" in (b["metadata"].get("tags") or [])
+            or "信" in (b["metadata"].get("tags") or [])
             or (b["metadata"].get("name") or "").startswith("信：")
+            or (b["metadata"].get("name") or "").startswith("【信")
             or (b["metadata"].get("name") or "").startswith("Letter:")
         ]
         letters.sort(key=lambda b: b["metadata"].get("created", ""), reverse=True)

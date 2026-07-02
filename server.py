@@ -367,6 +367,7 @@ async def root_redirect(request):
 @mcp.custom_route("/health", methods=["GET"])
 async def health_check(request):
     from starlette.responses import JSONResponse
+    _ensure_reminder_loop()
     try:
         stats = await bucket_mgr.get_stats()
         return JSONResponse({
@@ -2934,12 +2935,22 @@ if __name__ == "__main__":
 
         # --- Application-level keepalive: ping /health every 60s ---
         # --- 应用层保活：每 60 秒 ping 一次 /health，防止 Cloudflare Tunnel 空闲断连 ---
+        # Ping the public URL when known (Render sets RENDER_EXTERNAL_URL):
+        # localhost pings are not inbound traffic, so Render free tier would
+        # still spin down, killing MCP connects and pending reminders
+        # 优先 ping 公网地址：localhost 不算入站流量，Render 免费层照样休眠
+        _keepalive_target = (
+            os.environ.get("OMBRE_KEEPALIVE_URL", "").strip()
+            or os.environ.get("RENDER_EXTERNAL_URL", "").strip()
+            or f"http://localhost:{OMBRE_PORT}"
+        ).rstrip("/")
+
         async def _keepalive_loop():
             await asyncio.sleep(10)  # Wait for server to fully start
             async with httpx.AsyncClient() as client:
                 while True:
                     try:
-                        await client.get(f"http://localhost:{OMBRE_PORT}/health", timeout=5)
+                        await client.get(f"{_keepalive_target}/health", timeout=15)
                         logger.debug("Keepalive ping OK / 保活 ping 成功")
                     except Exception as e:
                         logger.warning(f"Keepalive ping failed / 保活 ping 失败: {e}")

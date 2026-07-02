@@ -21,11 +21,10 @@ import urllib.request
 import urllib.error
 
 def main():
-    # Allow disabling the hook via env var
     if os.environ.get("OMBRE_HOOK_SKIP") == "1":
         sys.exit(0)
 
-    base_url = os.environ.get("OMBRE_HOOK_URL", "http://localhost:8000").rstrip("/")
+    base_url = os.environ.get("OMBRE_HOOK_URL", "https://ombre-brain-098d.onrender.com").rstrip("/")
 
     # --- Step 1: Breath — surface unresolved memories ---
     _call_endpoint(base_url, "/breath-hook")
@@ -41,7 +40,7 @@ def _call_endpoint(base_url, path):
         method="GET",
     )
     try:
-        with urllib.request.urlopen(req, timeout=8) as response:
+        with urllib.request.urlopen(req, timeout=25) as response:
             raw = response.read().decode("utf-8")
             output = raw.strip()
             if output:

@@ -10,8 +10,13 @@ prints recalled memories to stdout for injection into system-reminder.
 import json
 import os
 import sys
+import time
 import urllib.request
 import urllib.error
+
+COOLDOWN_SECONDS = 300
+COOLDOWN_FILE = "/tmp/memory_recall_last"
+MIN_LENGTH = 10
 
 
 def main():
@@ -28,8 +33,22 @@ def main():
         sys.exit(0)
 
     user_msg = data.get("prompt", "").strip()
-    if not user_msg or len(user_msg) < 4:
+    if not user_msg or len(user_msg) < MIN_LENGTH:
         sys.exit(0)
+
+    try:
+        if os.path.exists(COOLDOWN_FILE):
+            last = float(open(COOLDOWN_FILE).read().strip())
+            if time.time() - last < COOLDOWN_SECONDS:
+                sys.exit(0)
+    except (ValueError, OSError):
+        pass
+
+    try:
+        with open(COOLDOWN_FILE, "w") as f:
+            f.write(str(time.time()))
+    except OSError:
+        pass
 
     base_url = os.environ.get("OMBRE_HOOK_URL", "https://ombre-brain-098d.onrender.com").rstrip("/")
 

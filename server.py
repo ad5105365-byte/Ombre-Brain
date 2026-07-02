@@ -400,10 +400,6 @@ async def breath_hook(request):
 
         parts = []
         token_budget = 10000
-        for b in pinned:
-            summary = await dehydrator.dehydrate(strip_wikilinks(b["content"]), {k: v for k, v in b["metadata"].items() if k != "tags"})
-            parts.append(f"📌 [核心准则] {summary}")
-            token_budget -= count_tokens_approx(summary)
 
         # Diversity: top-1 fixed + shuffle rest from top-20
         candidates = list(scored)
@@ -415,10 +411,38 @@ async def breath_hook(request):
         # Hard cap: max 20 surfacing buckets in hook
         candidates = candidates[:20]
 
-        for b in candidates:
+        # Dehydrate concurrently: up to 30 serial API calls blow past the
+        # client hook timeout, so fan out with a cap to respect API rate limits
+        # 并行脱水：串行调 30 次 API 会超过客户端 hook 超时，限流并发
+        sem = asyncio.Semaphore(8)
+
+        async def _summarize(b):
+            async with sem:
+                return await dehydrator.dehydrate(
+                    strip_wikilinks(b["content"]),
+                    {k: v for k, v in b["metadata"].items() if k != "tags"},
+                )
+
+        summaries = await asyncio.gather(
+            *(_summarize(b) for b in pinned + candidates),
+            return_exceptions=True,
+        )
+        pinned_summaries = summaries[:len(pinned)]
+        candidate_summaries = summaries[len(pinned):]
+
+        for summary in pinned_summaries:
+            if isinstance(summary, BaseException):
+                logger.warning(f"Breath hook dehydrate failed: {summary}")
+                continue
+            parts.append(f"📌 [核心准则] {summary}")
+            token_budget -= count_tokens_approx(summary)
+
+        for summary in candidate_summaries:
             if token_budget <= 0:
                 break
-            summary = await dehydrator.dehydrate(strip_wikilinks(b["content"]), {k: v for k, v in b["metadata"].items() if k != "tags"})
+            if isinstance(summary, BaseException):
+                logger.warning(f"Breath hook dehydrate failed: {summary}")
+                continue
             summary_tokens = count_tokens_approx(summary)
             if summary_tokens > token_budget:
                 break

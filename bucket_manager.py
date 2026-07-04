@@ -110,6 +110,7 @@ class BucketManager:
         name: str = None,
         pinned: bool = False,
         protected: bool = False,
+        created: str = None,
     ) -> str:
         """
         Create a new memory bucket, return bucket ID.
@@ -118,6 +119,9 @@ class BucketManager:
         pinned/protected=True: bucket won't be merged, decayed, or have importance changed.
         Importance is locked to 10 for pinned/protected buckets.
         pinned/protected 桶不参与合并与衰减，importance 强制锁定为 10。
+
+        created: optional ISO timestamp override, for backdating imported content
+        （如导入历史信件）而不是使用当前时间。
         """
         bucket_id = generate_bucket_id()
         bucket_name = sanitize_name(name) if name else bucket_id
@@ -144,8 +148,8 @@ class BucketManager:
             "arousal": max(0.0, min(1.0, arousal)),
             "importance": max(1, min(10, importance)),
             "type": bucket_type,
-            "created": now_iso(),
-            "last_active": now_iso(),
+            "created": created or now_iso(),
+            "last_active": created or now_iso(),
             "activation_count": 0,
         }
         if pinned:

@@ -401,7 +401,7 @@ async def breath_hook(request):
         scored = sorted(unresolved, key=lambda b: decay_engine.calculate_score(b["metadata"]), reverse=True)
 
         parts = []
-        token_budget = 10000
+        token_budget = 2500
 
         # Diversity: top-1 fixed + shuffle rest from top-20
         candidates = list(scored)
@@ -410,8 +410,8 @@ async def breath_hook(request):
             pool = candidates[1:min(20, len(candidates))]
             random.shuffle(pool)
             candidates = top1 + pool + candidates[min(20, len(candidates)):]
-        # Hard cap: max 20 surfacing buckets in hook
-        candidates = candidates[:20]
+        # Hard cap: max 8 surfacing buckets in hook
+        candidates = candidates[:8]
 
         # Dehydrate concurrently: up to 30 serial API calls blow past the
         # client hook timeout, so fan out with a cap to respect API rate limits
@@ -503,7 +503,7 @@ async def recall_hook(request):
             return PlainTextResponse("")
 
         parts = []
-        token_budget = 3000
+        token_budget = 1500
         for b in matches:
             if token_budget <= 0:
                 break

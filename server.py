@@ -2606,8 +2606,8 @@ async def api_letters_store(request):
         body = await request.json()
     except Exception:
         return JSONResponse({"error": "Invalid JSON"}, status_code=400)
-    content = body.get("content", "").strip()
-    subject = body.get("subject", "").strip()
+    content = (body.get("content") or "").strip()
+    subject = (body.get("subject") or "").strip()
     if not content:
         return JSONResponse({"error": "内容不能为空"}, status_code=400)
 
@@ -2615,16 +2615,27 @@ async def api_letters_store(request):
     valence = body.get("valence", 0.7)
     arousal = body.get("arousal", 0.4)
 
+    # Optional date override for backdating imported letters (YYYY-MM-DD from a <input type=date>)
+    created = None
+    date_str = (body.get("date") or "").strip()
+    if date_str:
+        try:
+            datetime.strptime(date_str, "%Y-%m-%d")
+            created = f"{date_str}T12:00:00"
+        except ValueError:
+            return JSONResponse({"error": "日期格式不对"}, status_code=400)
+
     try:
         bucket_id = await bucket_mgr.create(
             content=content,
-            tags=["letter", "信"],
+            tags=["letter", "信", "imported"],
             importance=body.get("importance", 8),
             domain=["信"],
             valence=valence,
             arousal=arousal,
             name=name,
             bucket_type="permanent",
+            created=created,
         )
         try:
             await embedding_engine.generate_and_store(bucket_id, content)

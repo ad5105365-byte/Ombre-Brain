@@ -499,6 +499,59 @@
     -webkit-box-orient: vertical;
     overflow: hidden;
   }
+  .letter-import-box {
+    background: var(--surface-solid);
+    border-radius: var(--card-radius);
+    padding: 16px;
+    border: 1px solid var(--border);
+    box-shadow: 0 2px 12px var(--shadow);
+    margin-bottom: 16px;
+  }
+  .letter-import-box input[type="text"],
+  .letter-import-box textarea {
+    display: block;
+    width: 100%;
+    background: var(--mint-pale);
+    border: 1.5px solid var(--border);
+    color: var(--text);
+    padding: 10px 14px;
+    border-radius: 12px;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 500;
+    margin-bottom: 10px;
+  }
+  .letter-import-box textarea {
+    resize: vertical;
+    line-height: 1.6;
+  }
+  .letter-import-box input:focus,
+  .letter-import-box textarea:focus {
+    outline: none;
+    border-color: var(--mint);
+    box-shadow: 0 0 0 3px rgba(124,197,191,0.15);
+  }
+  .letter-import-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .letter-import-row label {
+    font-size: 12px;
+    color: var(--text-dim);
+    font-weight: 600;
+  }
+  .letter-import-row input[type="date"] {
+    flex: 1;
+    background: var(--mint-pale);
+    border: 1.5px solid var(--border);
+    color: var(--text);
+    padding: 8px 12px;
+    border-radius: 12px;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 500;
+  }
 
   /* ─── Config / Settings (reuse from old) ─── */
   .settings-section {
@@ -799,6 +852,21 @@
   <div style="text-align:center;padding:20px 0 12px;">
     <div style="font-size:36px;margin-bottom:4px;">💌</div>
     <div style="color:var(--text-dim);font-size:13px;">克克写给你的信</div>
+  </div>
+  <div style="text-align:center;margin-bottom:14px;">
+    <button class="btn-outline" id="letter-import-toggle" onclick="toggleLetterImport()">✍️ 手动导入</button>
+  </div>
+  <div id="letter-import-form" class="letter-import-box" style="display:none;">
+    <input type="text" id="letter-import-subject" placeholder="标题（可选）" />
+    <textarea id="letter-import-content" placeholder="贴信件内容…" rows="8"></textarea>
+    <div class="letter-import-row">
+      <label>日期</label>
+      <input type="date" id="letter-import-date" />
+    </div>
+    <div style="display:flex;gap:8px;margin-top:10px;">
+      <button class="btn-mint" onclick="doImportLetter()" id="letter-import-btn">导入</button>
+      <button class="btn-outline" onclick="toggleLetterImport(false)">取消</button>
+    </div>
   </div>
   <div id="letters-list"></div>
   <div class="loading" id="letters-loading">加载中…</div>
@@ -1323,6 +1391,38 @@ async function loadLetters() {
     loading.textContent = '加载失败';
     loading.style.color = 'var(--negative)';
   }
+}
+
+function toggleLetterImport(show) {
+  const form = document.getElementById('letter-import-form');
+  const open = show !== undefined ? show : form.style.display === 'none';
+  form.style.display = open ? '' : 'none';
+  if (!open) {
+    document.getElementById('letter-import-subject').value = '';
+    document.getElementById('letter-import-content').value = '';
+    document.getElementById('letter-import-date').value = '';
+  }
+}
+
+async function doImportLetter() {
+  const content = document.getElementById('letter-import-content').value.trim();
+  if (!content) { alert('先贴点内容进来呀'); return; }
+  const subject = document.getElementById('letter-import-subject').value.trim();
+  const date = document.getElementById('letter-import-date').value;
+  const btn = document.getElementById('letter-import-btn');
+  btn.disabled = true; btn.textContent = '导入中…';
+  try {
+    const resp = await authFetch(BASE + '/api/letters', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content, subject, date })
+    });
+    if (!resp) return;
+    const data = await resp.json();
+    if (resp.ok) { toggleLetterImport(false); loadLetters(); }
+    else { alert(data.error || '导入失败'); }
+  } catch(e) { alert('导入失败: ' + e.message); }
+  btn.disabled = false; btn.textContent = '导入';
 }
 
 async function showLetterDetail(id) {

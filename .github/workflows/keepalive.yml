@@ -1,0 +1,40 @@
+# ============================================================
+# 保活哨兵 / Keepalive watchdog
+#
+# 服务内部已有每 60 秒的自我 ping（server.py __main__），平时靠它防止
+# Render 免费实例休眠。这个 workflow 是外部哨兵：进程崩了、部署卡死、
+# 自我 ping 跟着一起死的时候，只有外面的人才看得见。
+#
+# 每 30 分钟戳一次 /health，连续三次失败才算挂 → workflow 失败 →
+# GitHub 自动发邮件通知仓库所有者。顺手也能把睡着的实例戳醒。
+#
+# In-app self-ping (60s) is the primary keepalive; this is the external
+# watchdog that catches process crashes the self-ping dies with.
+# 3 retries before failing → GitHub emails the owner on failure.
+# ============================================================
+name: keepalive-watchdog
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Ping /health with retries
+        run: |
+          url="https://ombre-brain-098d.onrender.com/health"
+          for i in 1 2 3; do
+            code=$(curl -sS -o /tmp/health.json -w "%{http_code}" --max-time 90 "$url" || echo "000")
+            if [ "$code" = "200" ]; then
+              echo "OB alive: $(cat /tmp/health.json)"
+              exit 0
+            fi
+            echo "attempt $i failed (HTTP $code), retrying in 30s..."
+            sleep 30
+          done
+          echo "::error::OB 服务器连续三次没响应，自我保活可能已死，去 Render 控制台看日志。"
+          exit 1

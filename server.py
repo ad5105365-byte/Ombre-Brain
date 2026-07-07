@@ -487,15 +487,26 @@ async def recall_hook(request):
         if not user_msg or len(user_msg) < 2:
             return PlainTextResponse("")
 
-        # Search via keyword + vector dual channel
-        matches = await bucket_mgr.search(user_msg, limit=20)
+        # Search via keyword + vector dual channel — run both concurrently:
+        # each takes seconds on its own, and serially they eat half the
+        # client hook's 8s budget before dehydration even starts
+        # 关键词 + 向量双通道并排跑：串行会在脱水开始前就吃掉一半时间预算
+        async def _safe_vector_search():
+            try:
+                return await embedding_engine.search_similar(user_msg, top_k=20)
+            except Exception:
+                return []
+
+        matches, vector_results = await asyncio.gather(
+            bucket_mgr.search(user_msg, limit=20),
+            _safe_vector_search(),
+        )
         # Exclude dormant
         matches = [b for b in matches if not b["metadata"].get("dormant")]
 
-        # Vector similarity channel
+        # Merge vector channel results
         matched_ids = {b["id"] for b in matches}
         try:
-            vector_results = await embedding_engine.search_similar(user_msg, top_k=20)
             for bucket_id, sim_score in vector_results:
                 if bucket_id not in matched_ids and sim_score > 0.5:
                     bucket = await bucket_mgr.get(bucket_id)
@@ -529,7 +540,9 @@ async def recall_hook(request):
             return await dehydrator.dehydrate(strip_wikilinks(b["content"]), clean_meta)
 
         tasks = {b["id"]: asyncio.create_task(_summarize(b)) for b in matches}
-        _, pending = await asyncio.wait(tasks.values(), timeout=5.0)
+        # 2.5s deadline: search floor is ~3-4s, total must stay under the
+        # client's 8s / 死线 2.5 秒：搜索本身已占 3-4 秒，总时长必须 <8 秒
+        _, pending = await asyncio.wait(tasks.values(), timeout=2.5)
         for t in pending:
             t.add_done_callback(lambda ft: ft.cancelled() or ft.exception())
 

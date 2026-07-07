@@ -514,14 +514,36 @@ async def recall_hook(request):
         if not matches:
             return PlainTextResponse("")
 
+        # --- Dehydrate in parallel with a hard deadline ---
+        # --- 并行脱水 + 死线兜底 ---
+        # The client hook gives up after 8s; serial dehydration of 3 uncached
+        # buckets takes 30s+ and the recall silently dies. Run summaries
+        # concurrently, and past the deadline fall back to a raw excerpt so
+        # the recall ALWAYS answers in time. Slow tasks keep running in the
+        # background to warm the dehydration cache for the next recall.
+        # 客户端钩子 8 秒就放弃；3 个未缓存桶串行脱水要 30 秒以上，召回全部
+        # 静默失败。改为并行脱水，超过死线就注入原文节选保证按时交卷；
+        # 超时的任务继续后台跑完，把缓存焐热，下次召回就快了。
+        async def _summarize(b):
+            clean_meta = {k: v for k, v in b["metadata"].items() if k != "tags"}
+            return await dehydrator.dehydrate(strip_wikilinks(b["content"]), clean_meta)
+
+        tasks = {b["id"]: asyncio.create_task(_summarize(b)) for b in matches}
+        _, pending = await asyncio.wait(tasks.values(), timeout=5.0)
+        for t in pending:
+            t.add_done_callback(lambda ft: ft.cancelled() or ft.exception())
+
         parts = []
         token_budget = 1500
         for b in matches:
             if token_budget <= 0:
                 break
             try:
-                clean_meta = {k: v for k, v in b["metadata"].items() if k != "tags"}
-                summary = await dehydrator.dehydrate(strip_wikilinks(b["content"]), clean_meta)
+                task = tasks[b["id"]]
+                if task.done() and not task.exception():
+                    summary = task.result()
+                else:
+                    summary = strip_wikilinks(b["content"]).strip()[:300]
                 summary_tokens = count_tokens_approx(summary)
                 if summary_tokens > token_budget:
                     break

@@ -24,6 +24,8 @@
 #                系统状态 + 所有桶列表
 #       dream  — Surface recent dynamic buckets for self-digestion
 #                返回最近桶 供模型自省/写 feel
+#       ferry  — Pack recent conversation into the global handoff bucket
+#                渡口交接：换窗口时打包最近对话，新窗口 breath 置顶浮现
 #
 # Startup:
 # 启动方式：
@@ -60,6 +62,7 @@ from decay_engine import DecayEngine
 from embedding_engine import EmbeddingEngine
 from import_memory import ImportEngine
 from utils import load_config, setup_logging, strip_wikilinks, count_tokens_approx
+import handoff as handoff_mod
 
 # --- Load config & init logging / 加载配置 & 初始化日志 ---
 config = load_config()
@@ -390,6 +393,12 @@ async def breath_hook(request):
     _ensure_reminder_loop()
     try:
         all_buckets = await bucket_mgr.list_all(include_archive=False)
+        # handoff (ferry): fresh handoff goes first, verbatim / 新鲜交接原文置顶
+        handoff_section = None
+        handoffs = handoff_mod.find_handoffs(all_buckets)
+        if handoffs and handoff_mod.is_fresh(handoffs[0]["metadata"]):
+            handoff_section = handoff_mod.render_section(handoffs[0])
+        all_buckets = [b for b in all_buckets if b["metadata"].get("type") != handoff_mod.HANDOFF_TYPE]
         # pinned
         pinned = [b for b in all_buckets if b["metadata"].get("pinned") or b["metadata"].get("protected")]
         # top 2 unresolved by score
@@ -402,6 +411,9 @@ async def breath_hook(request):
 
         parts = []
         token_budget = 2500
+        if handoff_section:
+            parts.append(handoff_section)
+            token_budget -= count_tokens_approx(handoff_section)
 
         # Diversity: top-1 fixed + shuffle rest from top-20
         candidates = list(scored)
@@ -541,7 +553,7 @@ async def dream_hook(request):
         all_buckets = await bucket_mgr.list_all(include_archive=False)
         candidates = [
             b for b in all_buckets
-            if b["metadata"].get("type") not in ("permanent", "feel")
+            if b["metadata"].get("type") not in ("permanent", "feel", handoff_mod.HANDOFF_TYPE)
             and not b["metadata"].get("pinned", False)
             and not b["metadata"].get("protected", False)
         ]
@@ -681,7 +693,7 @@ async def breath(
         filtered = [
             b for b in all_buckets
             if int(b["metadata"].get("importance", 0)) >= importance_min
-            and b["metadata"].get("type") not in ("feel",)
+            and b["metadata"].get("type") not in ("feel", handoff_mod.HANDOFF_TYPE)
         ]
         filtered.sort(key=lambda b: int(b["metadata"].get("importance", 0)), reverse=True)
         filtered = filtered[:20]
@@ -718,6 +730,17 @@ async def breath(
         for b in all_buckets:
             if not b["metadata"].get("dormant"):
                 await _maybe_mark_dormant(b)
+
+        # --- Handoff (ferry): fresh handoff surfaces verbatim at top priority ---
+        # --- 渡口交接：24小时内的 ferry 记录原文置顶浮现，其余流程不见它 ---
+        handoff_section = None
+        handoffs = handoff_mod.find_handoffs(all_buckets)
+        if handoffs and handoff_mod.is_fresh(handoffs[0]["metadata"]):
+            handoff_section = handoff_mod.render_section(handoffs[0])
+        all_buckets = [
+            b for b in all_buckets
+            if b["metadata"].get("type") != handoff_mod.HANDOFF_TYPE
+        ]
 
         # --- Filter dormant unless requested ---
         if not include_dormant:
@@ -797,6 +820,8 @@ async def breath(
 
         # --- Token-budgeted surfacing with diversity + hard cap ---
         token_budget = max_tokens
+        if handoff_section:
+            token_budget -= count_tokens_approx(handoff_section)
         for r in pinned_results:
             token_budget -= count_tokens_approx(r)
 
@@ -837,10 +862,12 @@ async def breath(
                 logger.warning(f"Failed to surface bucket / 浮现失败: {e}")
                 continue
 
-        if not pinned_results and not dynamic_results:
+        if not handoff_section and not pinned_results and not dynamic_results:
             return "权重池平静，没有需要处理的记忆。"
 
         parts = []
+        if handoff_section:
+            parts.append(handoff_section)
         if pinned_results:
             parts.append("=== 核心准则 ===\n" + "\n---\n".join(pinned_results))
         if dynamic_results:
@@ -1241,6 +1268,55 @@ async def grow(content: str) -> str:
 
 
 # =============================================================
+# Tool: ferry — 渡，换窗口时打包带走当前对话
+# Pack the live conversation into the single global handoff bucket
+# so the next session's breath() picks it up verbatim.
+# =============================================================
+@mcp.tool()
+async def ferry(
+    purpose: str,
+    messages: str,
+    from_port: str = "",
+    to_port: str = "",
+) -> str:
+    """换窗口/结束对话前的交接。把最近对话打包存成"渡口交接"记忆（全局仅一条，后写覆盖），新窗口 breath() 无参数唤醒时第一优先级原文浮现。purpose=一句话交接目的(≤200字，写"接下来要干嘛"，别复述对话)。messages=最近对话原文，每行一条，建议以[角色]开头（如 [杉杉] [克克]），最多保留最近20行。from_port/to_port=来源/目标端口(可选，如 claude.ai/手机/网页)。"""
+    await decay_engine.ensure_started()
+
+    try:
+        bucket_id, overwritten = await handoff_mod.write_handoff(
+            bucket_mgr,
+            purpose=purpose,
+            messages=messages,
+            from_port=from_port,
+            to_port=to_port,
+        )
+    except handoff_mod.FerryError as e:
+        return str(e)
+    except Exception as e:
+        logger.error(f"Ferry failed / 渡口交接失败: {e}")
+        return f"交接失败: {e}"
+
+    bucket = await bucket_mgr.get(bucket_id)
+    if bucket:
+        try:
+            await embedding_engine.generate_and_store(bucket_id, bucket["content"])
+        except Exception:
+            pass
+
+    await _fire_webhook("ferry", {
+        "bucket_id": bucket_id,
+        "overwritten": overwritten,
+        "from": from_port,
+        "to": to_port,
+    })
+    action = "覆盖" if overwritten else "新建"
+    return (
+        f"⛵已渡（{action}）→ {bucket_id}\n"
+        f"下一个窗口 breath() 第一眼就能看到这段对话，24小时内有效。"
+    )
+
+
+# =============================================================
 # Tool 4: trace — Trace, redraw the outline of a memory
 # 工具 4：trace — 描摹，重新勾勒记忆的轮廓
 # Also handles deletion (delete=True)
@@ -1490,7 +1566,7 @@ async def dream(detail_ids: str = "") -> str:
     # --- Filter: recent surface-level dynamic buckets (not permanent/pinned/feel) ---
     candidates = [
         b for b in all_buckets
-        if b["metadata"].get("type") not in ("permanent", "feel")
+        if b["metadata"].get("type") not in ("permanent", "feel", handoff_mod.HANDOFF_TYPE)
         and not b["metadata"].get("pinned", False)
         and not b["metadata"].get("protected", False)
     ]

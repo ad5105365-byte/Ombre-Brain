@@ -645,9 +645,21 @@ async def _merge_or_create(
 
     if existing and existing[0].get("score", 0) > config.get("merge_threshold", 75):
         bucket = existing[0]
+        # --- Diaries never merge across dates: the date is the bucket's identity.
+        #     One side being a dated diary is enough to block — merging would keep
+        #     the other side's name and knock a day off the dashboard calendar. ---
+        # --- 不同日期的日记不许合并：日期是日记的身份证。只要有一边是带日期的
+        #     日记就拦——合并会沿用另一边的名字，日历上就缺一天（0304事故）。---
+        new_date = _explicit_diary_date(name, content)
+        old_date = _explicit_diary_date(
+            bucket["metadata"].get("name", ""), bucket.get("content", "")
+        )
+        cross_date_diary = (new_date or old_date) and new_date != old_date
         # --- Never merge into pinned/protected buckets ---
         # --- 不合并到钉选/保护桶 ---
-        if not (bucket["metadata"].get("pinned") or bucket["metadata"].get("protected")):
+        if not cross_date_diary and not (
+            bucket["metadata"].get("pinned") or bucket["metadata"].get("protected")
+        ):
             try:
                 merged = await dehydrator.merge(bucket["content"], content)
                 old_v = bucket["metadata"].get("valence", 0.5)
@@ -1215,6 +1227,26 @@ def _diary_name(name: str, diary_date: str) -> str:
     if not diary_date or "日记" in (name or ""):
         return name
     return f"【日记 {diary_date}】{name or ''}".strip()
+
+
+_DIARY_DATE_RE = re.compile(r"(\d{4})\s*[-./年]\s*(\d{1,2})\s*[-./月]\s*(\d{1,2})")
+
+
+def _explicit_diary_date(name: str, content: str = "") -> str:
+    """Explicit YYYY-MM-DD of a diary bucket; '' when not a diary or no date written out.
+
+    Unlike _extract_diary_date this never falls back to today —
+    a guessed date must not veto a merge or stamp a rename.
+    跟 _extract_diary_date 不同，这里绝不用"今天"兜底——
+    猜出来的日期没资格否决合并或盖到桶名上。
+    """
+    for text in (name or "", (content or "").strip()[:80]):
+        if "日记" not in text:
+            continue
+        m = _DIARY_DATE_RE.search(text)
+        if m:
+            return f"{m.group(1)}-{int(m.group(2)):02d}-{int(m.group(3)):02d}"
+    return ""
 
 
 @mcp.tool()
@@ -1946,12 +1978,65 @@ async def _reminder_check_loop():
             logger.warning(f"Reminder loop error: {e}")
 
 
+# =============================================================
+# Diary patrol — periodic self-check: re-attach missing date prefixes
+# so a forgotten 【日记 YYYY-MM-DD】 never needs a human to fix it.
+# 日记查房——名字以"日记"开头却没挂日期门牌的桶，自动用
+# 正文里的日期（其次创建时间）补上，不需要任何窗口来修。
+# =============================================================
+async def _diary_patrol_once() -> int:
+    """Fix diary-named buckets missing a parseable date. Returns fix count."""
+    try:
+        buckets = await bucket_mgr.list_all(include_archive=False)
+    except Exception as e:
+        logger.warning(f"Diary patrol list failed / 查房读取失败: {e}")
+        return 0
+    fixed = 0
+    for b in buckets:
+        meta = b["metadata"]
+        name = meta.get("name", "") or ""
+        # Only names that OPEN with the diary marker — a mid-name "日记"
+        # (e.g. 克克日记) may not be a dated diary; don't stamp a guess on it.
+        # 只认以"日记"开头的名字——名字中间带"日记"的桶不一定是当日日记，不硬盖章。
+        if not re.match(r"^【?\s*日记", name) or _DIARY_DATE_RE.search(name):
+            continue
+        date = _explicit_diary_date(name, b.get("content", ""))
+        if not date:
+            created = meta.get("created", "")
+            date = created[:10] if len(created) >= 10 and created[4:5] == "-" else ""
+        if not date:
+            continue
+        stripped = re.sub(r"^【?\s*日记\s*】?", "", name).strip()
+        new_name = f"【日记 {date}】{stripped}".strip()
+        try:
+            await bucket_mgr.update(b["id"], name=new_name)
+            fixed += 1
+            logger.info(f"Diary patrol renamed / 查房补门牌: {name} → {new_name}")
+        except Exception as e:
+            logger.warning(f"Diary patrol rename failed / 查房改名失败: {name}: {e}")
+    return fixed
+
+
+async def _diary_patrol_loop():
+    while True:
+        try:
+            await asyncio.sleep(6 * 3600)
+            fixed = await _diary_patrol_once()
+            if fixed:
+                logger.info(f"Diary patrol fixed {fixed} bucket(s) / 查房补了{fixed}块门牌")
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            logger.warning(f"Diary patrol loop error: {e}")
+
+
 def _ensure_reminder_loop():
     global _reminder_loop_started
     if not _reminder_loop_started:
         _reminder_loop_started = True
         _load_reminders()
         asyncio.create_task(_reminder_check_loop())
+        asyncio.create_task(_diary_patrol_loop())
 
 
 @mcp.tool()

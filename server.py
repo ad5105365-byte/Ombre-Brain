@@ -487,6 +487,12 @@ async def recall_hook(request):
         if not user_msg or len(user_msg) < 2:
             return PlainTextResponse("")
 
+        # "7月5号干嘛了" must find the bucket named 2026-07-05 —
+        # translate spoken dates to ISO and feed both to keyword search
+        # 口语日期翻成 ISO 一起搜，否则按日期问永远搜不到带门牌的日记
+        date_hints = _expand_date_expressions(user_msg)
+        search_msg = user_msg + (" " + " ".join(date_hints) if date_hints else "")
+
         # Search via keyword + vector dual channel — run both concurrently:
         # each takes seconds on its own, and serially they eat half the
         # client hook's 8s budget before dehydration even starts
@@ -498,7 +504,7 @@ async def recall_hook(request):
                 return []
 
         matches, vector_results = await asyncio.gather(
-            bucket_mgr.search(user_msg, limit=20),
+            bucket_mgr.search(search_msg, limit=20),
             _safe_vector_search(),
         )
         # Exclude dormant
@@ -1247,6 +1253,56 @@ def _explicit_diary_date(name: str, content: str = "") -> str:
         if m:
             return f"{m.group(1)}-{int(m.group(2)):02d}-{int(m.group(3)):02d}"
     return ""
+
+
+# --- Date expressions in questions vs dates on bucket names ---
+# 她问"7月5号我们干嘛了"，桶名写的是 2026-07-05——两种写法互相认不出，
+# 召回就拿最像的错桶交差。这里把口语日期翻译成 ISO 再喂给搜索。
+_CN_DIGITS = {"一": 1, "二": 2, "三": 3, "四": 4, "五": 5,
+              "六": 6, "七": 7, "八": 8, "九": 9, "十": 10}
+
+_DATE_EXPR_RE = re.compile(
+    r"([0-9一二三四五六七八九十]{1,3})\s*月\s*([0-9一二三四五六七八九十]{1,3})\s*[号日]"
+)
+
+_RELATIVE_DAYS = {"今天": 0, "今晚": 0, "昨天": 1, "昨晚": 1, "前天": 2, "大前天": 3}
+
+
+def _cn_num(s: str) -> int:
+    """'7'→7, '七'→7, '十五'→15, '二十一'→21; 0 when unparseable."""
+    if s.isdigit():
+        return int(s)
+    if not s:
+        return 0
+    if "十" in s:
+        tens_part, _, ones_part = s.partition("十")
+        tens = _CN_DIGITS.get(tens_part, 0) if tens_part else 1
+        ones = _CN_DIGITS.get(ones_part, 0) if ones_part else 0
+        if tens_part and tens == 0:
+            return 0
+        return tens * 10 + ones
+    return _CN_DIGITS.get(s, 0)
+
+
+def _expand_date_expressions(text: str, now: datetime | None = None) -> list[str]:
+    """ISO dates mentioned in text: '7月5号'/'七月五号'/'昨天' → ['2026-07-05', …]."""
+    now = now or datetime.now(_DIARY_TZ)
+    found = []
+    for m in _DATE_EXPR_RE.finditer(text):
+        mo, day = _cn_num(m.group(1)), _cn_num(m.group(2))
+        if 1 <= mo <= 12 and 1 <= day <= 31:
+            year = now.year
+            # Asking about a month far ahead of now means last year's
+            # 问一个远在未来的月份，多半说的是去年
+            if mo - now.month > 1:
+                year -= 1
+            found.append(f"{year}-{mo:02d}-{day:02d}")
+    for word, delta in _RELATIVE_DAYS.items():
+        if word in text:
+            iso = (now - timedelta(days=delta)).strftime("%Y-%m-%d")
+            if iso not in found:
+                found.append(iso)
+    return found
 
 
 @mcp.tool()

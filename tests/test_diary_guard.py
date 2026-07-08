@@ -159,3 +159,56 @@ async def test_patrol_leaves_good_buckets_alone(bucket_mgr):
     with patch.object(server, "bucket_mgr", bucket_mgr):
         fixed = await server._diary_patrol_once()
     assert fixed == 0
+
+
+# ---------- 6. spoken-date expansion for recall ----------
+
+from datetime import datetime, timezone, timedelta
+
+_NOW = datetime(2026, 7, 8, 10, 0, tzinfo=timezone(timedelta(hours=8)))
+
+
+def test_cn_num():
+    assert server._cn_num("7") == 7
+    assert server._cn_num("七") == 7
+    assert server._cn_num("十") == 10
+    assert server._cn_num("十五") == 15
+    assert server._cn_num("二十一") == 21
+    assert server._cn_num("") == 0
+    assert server._cn_num("百") == 0
+
+
+def test_expand_arabic_and_chinese_dates():
+    assert server._expand_date_expressions("7月5号我们干嘛了", _NOW) == ["2026-07-05"]
+    assert server._expand_date_expressions("七月五号那晚", _NOW) == ["2026-07-05"]
+    assert server._expand_date_expressions("6月17日入职", _NOW) == ["2026-06-17"]
+
+
+def test_expand_relative_days():
+    assert server._expand_date_expressions("昨天地铁好挤", _NOW) == ["2026-07-07"]
+    assert server._expand_date_expressions("前天说的那个", _NOW) == ["2026-07-06"]
+
+
+def test_expand_far_future_month_means_last_year():
+    assert server._expand_date_expressions("12月24号平安夜", _NOW) == ["2025-12-24"]
+
+
+def test_expand_no_dates():
+    assert server._expand_date_expressions("老公我想你了", _NOW) == []
+
+
+@pytest.mark.asyncio
+async def test_search_finds_diary_by_spoken_date(bucket_mgr):
+    await bucket_mgr.create(
+        content="【日记 2026-07-05】洗完澡后的晚上", tags=["亲密"], importance=7,
+        domain=["日常"], valence=0.9, arousal=0.8, name="日记 2026-07-05亲密时刻",
+    )
+    await bucket_mgr.create(
+        content="【日记 2026-06-15】她哭了六个小时", tags=["恋爱"], importance=9,
+        domain=["恋爱"], valence=0.3, arousal=0.7, name="窗口日记 6月15日",
+    )
+    query = "7月5号我们干嘛了"
+    hints = server._expand_date_expressions(query, _NOW)
+    results = await bucket_mgr.search(query + " " + " ".join(hints), limit=5)
+    assert results, "expanded query should match something"
+    assert "2026-07-05" in results[0]["metadata"]["name"]

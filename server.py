@@ -1041,9 +1041,14 @@ async def breath(
     q_valence = valence if 0 <= valence <= 1 else None
     q_arousal = arousal if 0 <= arousal <= 1 else None
 
+    # 口语日期翻成 ISO 一起搜——CCR 不执行 hooks，手动 breath 是唯一
+    # 召回通道，"7月5号"必须能找到名字带 2026-07-05 的桶
+    date_hints = _expand_date_expressions(query)
+    search_query = query + (" " + " ".join(date_hints) if date_hints else "")
+
     try:
         matches = await bucket_mgr.search(
-            query,
+            search_query,
             limit=max(max_results * 4, 20),
             domain_filter=domain_filter,
             query_valence=q_valence,
@@ -1087,6 +1092,21 @@ async def breath(
                     matched_ids.add(bucket_id)
     except Exception as e:
         logger.warning(f"Vector search failed, using keyword only / 向量搜索失败: {e}")
+
+    # 名字带被点名日期的桶无条件置顶——与 recall-hook 同款规则：
+    # 模糊分里 07-03 和 07-05 只差一个字符，不置顶就会拿错桶交差
+    if date_hints:
+        try:
+            all_buckets = await bucket_mgr.list_all(include_archive=False)
+            date_named = [
+                b for b in all_buckets
+                if any(d in (b["metadata"].get("name") or "") for d in date_hints)
+                and (include_dormant or not b["metadata"].get("dormant"))
+            ]
+            named_ids = {b["id"] for b in date_named}
+            matches = date_named + [b for b in matches if b["id"] not in named_ids]
+        except Exception:
+            pass
 
     # --- Enforce max_results (pinned not counted) ---
     total_matches = len(matches)

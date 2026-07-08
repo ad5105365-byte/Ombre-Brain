@@ -46,6 +46,7 @@ import secrets
 import time
 import json as _json_lib
 import base64
+from collections import deque
 from datetime import datetime, timezone, timedelta
 import httpx
 
@@ -391,6 +392,7 @@ async def health_check(request):
 async def breath_hook(request):
     from starlette.responses import PlainTextResponse
     _ensure_reminder_loop()
+    _log_hook("breath")
     try:
         all_buckets = await bucket_mgr.list_all(include_archive=False)
         # handoff (ferry): fresh handoff goes first, verbatim / 新鲜交接原文置顶
@@ -475,16 +477,46 @@ async def breath_hook(request):
 
 
 # =============================================================
+# Hook flight recorder: last 50 hook calls, in memory only
+# 钩子行车记录仪——"注入没起效"到底死在哪一环，看这里而不是猜
+# Queries are logged as first-12-chars + length, never full text
+# =============================================================
+_hook_flight_log: deque = deque(maxlen=50)
+
+
+def _log_hook(endpoint: str, note: str = "", query: str = "",
+              n_matches: int = 0, chars: int = 0, started: float | None = None):
+    _hook_flight_log.append({
+        "time": datetime.now(_DIARY_TZ).strftime("%m-%d %H:%M:%S"),
+        "endpoint": endpoint,
+        "note": note,
+        "q": query[:12] + ("…" if len(query) > 12 else ""),
+        "qlen": len(query),
+        "matches": n_matches,
+        "chars": chars,
+        "ms": int((time.monotonic() - started) * 1000) if started is not None else None,
+    })
+
+
+@mcp.custom_route("/hook-log", methods=["GET"])
+async def hook_log(request):
+    from starlette.responses import JSONResponse
+    return JSONResponse(list(_hook_flight_log)[::-1])
+
+
+# =============================================================
 # /recall-hook endpoint: Real-time memory recall per user message
 # 每轮对话实时记忆召回（UserPromptSubmit hook 调用）
 # =============================================================
 @mcp.custom_route("/recall-hook", methods=["POST"])
 async def recall_hook(request):
     from starlette.responses import PlainTextResponse
+    t0 = time.monotonic()
     try:
         body = await request.json()
         user_msg = (body.get("query") or "").strip()
         if not user_msg or len(user_msg) < 2:
+            _log_hook("recall", "empty-query", user_msg, started=t0)
             return PlainTextResponse("")
 
         # "7月5号干嘛了" must find the bucket named 2026-07-05 —
@@ -547,6 +579,7 @@ async def recall_hook(request):
         # Take top 3
         matches = matches[:3]
         if not matches:
+            _log_hook("recall", "no-match", user_msg, started=t0)
             return PlainTextResponse("")
 
         # --- Dehydrate in parallel with a hard deadline ---
@@ -592,12 +625,15 @@ async def recall_hook(request):
                 continue
 
         if not parts:
+            _log_hook("recall", "no-parts", user_msg, len(matches), started=t0)
             return PlainTextResponse("")
 
         result = "<心记浮现>\n" + "\n---\n".join(parts) + "\n</心记浮现>"
+        _log_hook("recall", "ok", user_msg, len(matches), len(result), started=t0)
         return PlainTextResponse(result)
     except Exception as e:
         logger.warning(f"Recall hook failed: {e}")
+        _log_hook("recall", f"error:{type(e).__name__}", started=t0)
         return PlainTextResponse("")
 
 
@@ -608,6 +644,7 @@ async def recall_hook(request):
 @mcp.custom_route("/dream-hook", methods=["GET"])
 async def dream_hook(request):
     from starlette.responses import PlainTextResponse
+    _log_hook("dream")
     try:
         all_buckets = await bucket_mgr.list_all(include_archive=False)
         candidates = [

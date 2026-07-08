@@ -526,6 +526,24 @@ async def recall_hook(request):
         except Exception:
             pass
 
+        # Buckets literally named with an asked-about date outrank everything:
+        # fuzzy scoring puts 07-03 and 07-05 one character apart, and a recent
+        # touch can push the wrong day's diary above the one she asked for
+        # 名字里带被点名日期的桶直接排最前——模糊分里 07-03 和 07-05 只差
+        # 一个字符，错的那天刚被摸过就会抢位
+        if date_hints:
+            try:
+                all_buckets = await bucket_mgr.list_all(include_archive=False)
+                date_named = [
+                    b for b in all_buckets
+                    if any(d in (b["metadata"].get("name") or "") for d in date_hints)
+                    and not b["metadata"].get("dormant")
+                ]
+                named_ids = {b["id"] for b in date_named}
+                matches = date_named + [b for b in matches if b["id"] not in named_ids]
+            except Exception:
+                pass
+
         # Take top 3
         matches = matches[:3]
         if not matches:

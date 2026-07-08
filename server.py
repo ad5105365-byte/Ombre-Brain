@@ -498,9 +498,18 @@ def _log_hook(endpoint: str, note: str = "", query: str = "",
     })
 
 
-@mcp.custom_route("/hook-log", methods=["GET"])
+@mcp.custom_route("/hook-log", methods=["GET", "POST"])
 async def hook_log(request):
     from starlette.responses import JSONResponse
+    # POST = 报到电话：她容器的 setup script 开机打一发，带环境侦察情报，
+    # 用来区分"钩子没加载"和"setup script/网络本身不通"
+    if request.method == "POST":
+        try:
+            body = await request.json()
+            _log_hook("ping", note=str(body.get("note", ""))[:300])
+        except Exception:
+            _log_hook("ping", note="bad-body")
+        return JSONResponse({"ok": True})
     return JSONResponse(list(_hook_flight_log)[::-1])
 
 

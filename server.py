@@ -617,7 +617,9 @@ async def recall_hook(request):
                 summary_tokens = count_tokens_approx(summary)
                 if summary_tokens > token_budget:
                     break
-                await bucket_mgr.touch(b["id"])
+                # touch 走后台——写盘/云同步的秒数不该算进她等待的死线
+                _t = asyncio.create_task(bucket_mgr.touch(b["id"]))
+                _t.add_done_callback(lambda ft: ft.cancelled() or ft.exception())
                 prefix = "[语义关联] " if b.get("vector_match") else ""
                 parts.append(f"{prefix}{summary}")
                 token_budget -= summary_tokens

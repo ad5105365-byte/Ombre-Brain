@@ -695,7 +695,8 @@ async def dream_hook(request):
         parts = []
         for b in recent:
             meta = b["metadata"]
-            resolved_tag = "[已解决]" if meta.get("resolved", False) else "[未解决]"
+            # [记挂中]不是[未解决]：克克醒来是心里记挂着这些事，不是接到派工单
+            resolved_tag = "[已解决]" if meta.get("resolved", False) else "[记挂中]"
             parts.append(
                 f"{meta.get('name', b['id'])} {resolved_tag} "
                 f"V{meta.get('valence', 0.5):.1f}/A{meta.get('arousal', 0.3):.1f}\n"
@@ -1428,6 +1429,23 @@ _DOUBLED_DIARY_DATE_RE = re.compile(
     r"(20\d{2})-\d{2}-\d{2}((?:0[1-9]|1[0-2])-(?:[0-2]\d|3[01]))"
 )
 
+# 日记满这个天数自动标已解决：日记是记录不是任务。246 个动态桶几乎
+# 全体[记挂中]，真正悬着的事泡在旧日记沼泽里——这就是"新窗口好像
+# 只记得最近的事"的病根。约定/承诺该单独 hold，不受此规则影响。
+DIARY_AUTO_RESOLVE_DAYS = 7
+
+
+def _older_than_days(ts: str, days: int) -> bool:
+    if not ts:
+        return False
+    try:
+        dt = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return (datetime.now(timezone.utc) - dt) >= timedelta(days=days)
+    except Exception:
+        return False
+
 
 def _explicit_diary_date(name: str, content: str = "") -> str:
     """Explicit YYYY-MM-DD of a diary bucket; '' when not a diary or no date written out.
@@ -1900,7 +1918,7 @@ async def dream(detail_ids: str = "") -> str:
     parts = []
     for b in recent:
         meta = b["metadata"]
-        resolved_tag = " [已解决]" if meta.get("resolved", False) else " [未解决]"
+        resolved_tag = " [已解决]" if meta.get("resolved", False) else " [记挂中]"
         domains = ",".join(meta.get("domain", []))
         val = meta.get("valence", 0.5)
         aro = meta.get("arousal", 0.3)
@@ -2267,6 +2285,21 @@ async def _diary_patrol_once() -> int:
         # 只认以"日记"开头的名字——名字中间带"日记"的桶不一定是当日日记，不硬盖章。
         if not re.match(r"^【?\s*日记", name):
             continue
+        # Diary auto-resolve: a diary is a record, not a task. Without this,
+        # every diary stays "记挂中" forever and the genuinely-open threads
+        # drown in the swamp. Agreements are hold-ed separately, unaffected.
+        # 日记满 7 天自动沉底；约定单独 hold 存，不受影响。
+        if (not meta.get("resolved") and not meta.get("pinned")
+                and not meta.get("protected")
+                and meta.get("type") not in ("permanent", "feel")
+                and _older_than_days(str(meta.get("created", "")),
+                                     DIARY_AUTO_RESOLVE_DAYS)):
+            try:
+                await bucket_mgr.update(b["id"], resolved=True)
+                fixed += 1
+                logger.info(f"Diary patrol auto-resolved / 查房沉底旧日记: {name}")
+            except Exception as e:
+                logger.warning(f"Diary patrol resolve failed / 查房沉底失败: {name}: {e}")
         # Doubled-date repair: "2026-06-2006-15" = creation date glued onto
         # the real date; the REAL diary date is the trailing half. This must
         # run before the missing-date rule below — a glued name contains a

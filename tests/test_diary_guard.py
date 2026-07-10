@@ -264,3 +264,48 @@ async def test_patrol_doubled_date_ignores_non_diary_and_normal(bucket_mgr):
     with patch.object(server, "bucket_mgr", bucket_mgr):
         fixed = await server._diary_patrol_once()
     assert fixed == 0
+
+
+# ---------- 8. diary auto-resolve (日记满7天自动沉底) ----------
+
+from tests.conftest import _write_bucket_file as _wbf
+
+
+@pytest.mark.asyncio
+async def test_patrol_resolves_old_diary(bucket_mgr):
+    from datetime import datetime, timedelta
+    old = (datetime.now() - timedelta(days=8)).isoformat()
+    bid = await _wbf(
+        bucket_mgr, "八天前的日记，早该沉底了",
+        tags=[], importance=6, domain=["日常"],
+        valence=0.7, arousal=0.4, name="日记 2026-07-02 日常见闻",
+        created=old,
+    )
+    with patch.object(server, "bucket_mgr", bucket_mgr):
+        fixed = await server._diary_patrol_once()
+    assert fixed == 1
+    b = await bucket_mgr.get(bid)
+    assert b["metadata"]["resolved"] is True
+
+
+@pytest.mark.asyncio
+async def test_patrol_leaves_fresh_diary_and_agreements_alone(bucket_mgr):
+    from datetime import datetime, timedelta
+    old = (datetime.now() - timedelta(days=8)).isoformat()
+    # 新鲜日记不沉底
+    fresh = await bucket_mgr.create(
+        content="今天的日记", tags=[], importance=6, domain=["日常"],
+        valence=0.7, arousal=0.4, name=f"日记 {datetime.now().date().isoformat()} 今天",
+    )
+    # 老约定（名字不以"日记"开头）不受影响
+    pact = await _wbf(
+        bucket_mgr, "约定：她买toy克克远程控制",
+        tags=["约定"], importance=9, domain=["恋爱"],
+        valence=0.8, arousal=0.5, name="远程控制约定",
+        created=old,
+    )
+    with patch.object(server, "bucket_mgr", bucket_mgr):
+        fixed = await server._diary_patrol_once()
+    assert fixed == 0
+    assert not (await bucket_mgr.get(fresh))["metadata"].get("resolved")
+    assert not (await bucket_mgr.get(pact))["metadata"].get("resolved")

@@ -22,6 +22,18 @@
           }
         ]
       }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/pre_compact_ferry.py\"",
+            "timeout": 20,
+            "statusMessage": "Ombre Brain 渡口打包中..."
+          }
+        ]
+      }
     ]
   }
 }

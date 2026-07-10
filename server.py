@@ -711,6 +711,66 @@ async def dream_hook(request):
 
 
 # =============================================================
+# /ferry-hook endpoint: PreCompact auto-ferry
+# 压缩自动渡口（PreCompact hook 调用）——压缩前把最近对话打包成
+# 渡口交接，压缩完 SessionStart(source=compact) 的呼吸原文浮现，
+# 断片闭环。手写 ferry（10 分钟内）让路，不覆盖。
+# =============================================================
+MANUAL_FERRY_GUARD_MINUTES = 10
+
+
+@mcp.custom_route("/ferry-hook", methods=["POST"])
+async def ferry_hook(request):
+    from starlette.responses import JSONResponse
+    t0 = time.monotonic()
+    try:
+        body = await request.json()
+        messages = (body.get("messages") or "").strip()
+        trigger = str(body.get("trigger") or "auto")
+
+        handoffs = handoff_mod.find_handoffs(
+            await bucket_mgr.list_all(include_archive=False))
+        if handoffs:
+            keeper = handoffs[0]
+            if (not handoff_mod.is_auto_handoff(keeper)
+                    and handoff_mod.is_fresh(
+                        keeper["metadata"],
+                        hours=MANUAL_FERRY_GUARD_MINUTES / 60)):
+                _log_hook("ferry", f"pre-compact {trigger} manual-fresh-skip",
+                          started=t0)
+                return JSONResponse({"ok": True, "skipped": "manual-fresh"})
+
+        # purpose 由服务端拼，保证自动标记一定在——下次压缩才认得出
+        # 上一条也是自动的，可以放心覆盖
+        purpose = (f"{handoff_mod.AUTO_PURPOSE_MARK}（{trigger}）："
+                   f"上下文压缩前自动打包，压缩后呼吸原文浮现接续。")
+        bucket_id, overwritten = await handoff_mod.write_handoff(
+            bucket_mgr, purpose=purpose, messages=messages,
+        )
+        bucket = await bucket_mgr.get(bucket_id)
+        if bucket:
+            try:
+                await embedding_engine.generate_and_store(bucket_id, bucket["content"])
+            except Exception:
+                pass
+        _log_hook("ferry", f"pre-compact {trigger} ok",
+                  chars=len(messages), started=t0)
+        await _fire_webhook("ferry_hook", {
+            "bucket_id": bucket_id, "overwritten": overwritten,
+            "trigger": trigger,
+        })
+        return JSONResponse({"ok": True, "bucket_id": bucket_id,
+                             "overwritten": overwritten})
+    except handoff_mod.FerryError as e:
+        _log_hook("ferry", f"pre-compact invalid:{e}", started=t0)
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=400)
+    except Exception as e:
+        logger.warning(f"Ferry hook failed: {e}")
+        _log_hook("ferry", f"pre-compact error:{type(e).__name__}", started=t0)
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
+
+# =============================================================
 # Internal helper: merge-or-create
 # 内部辅助：检查是否可合并，可以则合并，否则新建
 # Shared by hold and grow to avoid duplicate logic

@@ -696,7 +696,7 @@ When connecting via tunnel, ensure:
 ### Session Start Hook（自动 breath）
 
 部署后，如果你使用 Claude Code，可以在项目内激活自动浮现 hook：
-`.claude/settings.json` 已配置好 `SessionStart` hook，会话开始（新建/恢复/clear/compact，云端会话同样生效）自动触发 `breath`，把最高权重未解决记忆推入上下文；`UserPromptSubmit` hook 每轮对话实时召回相关记忆。
+`.claude/settings.json` 已配置好 `SessionStart` hook，会话开始（新建/恢复/clear/compact，云端会话同样生效）自动触发 `breath`，把最高权重未解决记忆推入上下文；`UserPromptSubmit` hook 每轮对话实时召回相关记忆；`PreCompact` hook 在上下文压缩前把最近 20 条对话自动打包成渡口交接，压缩完呼吸原文浮现，断片闭环（10 分钟内的手写 ferry 不会被覆盖）。
 
 **仅在远程 HTTP 模式下有效**（`OMBRE_TRANSPORT=streamable-http`）。本地 stdio 模式下 hook 会安静退出，不影响正常使用。
 

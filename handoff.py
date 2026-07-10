@@ -29,6 +29,15 @@ FRESH_HOURS = 24          # 超过这个时长的交接不再浮现 / stale afte
 MAX_PURPOSE_CHARS = 200   # 目的一句话说清 / purpose stays short
 MAX_MESSAGE_LINES = 20    # 最多带走最近 20 条消息 / cap carried messages
 
+# PreCompact 自动渡口在 purpose 里带这个标记，用来和手写 ferry 区分：
+# 手写的交接（10 分钟内的）不被自动渡口覆盖——人写的 purpose 比打包的值钱
+AUTO_PURPOSE_MARK = "⚙️压缩自动渡口"
+
+
+def is_auto_handoff(bucket: dict) -> bool:
+    """这条 handoff 是不是 PreCompact 自动打包的（而非克克手写的）。"""
+    return AUTO_PURPOSE_MARK in (bucket.get("content") or "")
+
 
 class FerryError(ValueError):
     """Ferry 输入不合法。message 直接面向工具调用方（中文）。"""

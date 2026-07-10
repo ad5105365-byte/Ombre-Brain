@@ -421,6 +421,36 @@ def _phone_recent_line() -> str | None:
         return None
 
 
+# --- 随手帖 / casual posts ---
+# 克克基于具体事件写下的第一人称即时感受（1-2句）。三条铁律：
+# 保留原始语气（原文注入不脱水）、不进核心准则区（永远不 pinned）、
+# 允许过时（带日期渲染，读的人自己判断新鲜度）。
+# 存储骑 feel 通道（不衰减、不进常规浮现、原文保留），用标签区分。
+POST_TAG = "帖子"
+
+
+def _is_post(meta: dict) -> bool:
+    """是不是随手帖：feel 类型 + 帖子标签。"""
+    return meta.get("type") == "feel" and POST_TAG in (meta.get("tags") or [])
+
+
+def _random_post_line(all_buckets: list) -> str | None:
+    """随机抽一条随手帖，原文渲染——新窗口像刷帖子一样消遣着认识她，
+    而不是背性格档案。高敏帖直接跳过：折叠成门牌就失去刷帖的意义了。"""
+    posts = [
+        b for b in all_buckets
+        if _is_post(b["metadata"])
+        and not b["metadata"].get("dormant")
+        and not sensitive.should_fold(b["content"])
+    ]
+    if not posts:
+        return None
+    b = random.choice(posts)
+    created = (b["metadata"].get("created") or "")[:10]
+    date_tag = f"（{created}）" if created else ""
+    return f"📮 克克随手帖{date_tag}：{strip_wikilinks(b['content']).strip()}"
+
+
 @mcp.custom_route("/breath-hook", methods=["GET"])
 async def breath_hook(request):
     from starlette.responses import PlainTextResponse
@@ -528,7 +558,12 @@ async def breath_hook(request):
             await _fire_webhook("breath_hook", {"surfaced": 0})
             return PlainTextResponse("")
         phone_line = _phone_recent_line()
-        tail = ("\n" + phone_line) if phone_line else ""
+        post_line = _random_post_line(all_buckets)
+        tail = ""
+        if phone_line:
+            tail += "\n" + phone_line
+        if post_line:
+            tail += "\n" + post_line
         body_text = (f"[Ombre Brain - 记忆浮现] {_now_line()}\n"
                      + "\n---\n".join(parts) + tail)
         _log_hook("breath", f"ok fallback={n_fallback} folded={n_folded}",
@@ -1099,6 +1134,51 @@ async def breath(
                 logger.warning(f"importance_min dehydrate failed: {e}")
         return "\n---\n".join(results) if results else "没有可以展示的记忆。"
 
+    # --- Feel retrieval: domain="feel" is a special channel ---
+    # --- Feel 检索：domain="feel" 是独立入口（随手帖不混进来）---
+    # 必须排在无参浮现分支之前：文档写的用法是 breath(domain="feel")
+    # 不带 query，放在后面会被浮现分支截胡，专用通道永远够不着
+    if domain.strip().lower() == "feel":
+        try:
+            all_buckets = await bucket_mgr.list_all(include_archive=False)
+            feels = [b for b in all_buckets
+                     if b["metadata"].get("type") == "feel" and not _is_post(b["metadata"])]
+            feels.sort(key=lambda b: b["metadata"].get("created", ""), reverse=True)
+            if not feels:
+                return "没有留下过 feel。"
+            results = []
+            for f in feels:
+                created = f["metadata"].get("created", "")
+                entry = f"[{created}] [bucket_id:{f['id']}]\n{strip_wikilinks(f['content'])}"
+                results.append(entry)
+                if count_tokens_approx("\n---\n".join(results)) > max_tokens:
+                    break
+            return "=== 你留下的 feel ===\n" + "\n---\n".join(results)
+        except Exception as e:
+            logger.error(f"Feel retrieval failed: {e}")
+            return "读取 feel 失败。"
+
+    # --- Post retrieval: domain="post"/"帖子" lists all casual posts ---
+    # --- 随手帖检索：手动翻帖入口，日常阅读走 breath-hook 随机注入 ---
+    if domain.strip().lower() in ("post", "帖子"):
+        try:
+            all_buckets = await bucket_mgr.list_all(include_archive=False)
+            posts = [b for b in all_buckets if _is_post(b["metadata"])]
+            posts.sort(key=lambda b: b["metadata"].get("created", ""), reverse=True)
+            if not posts:
+                return "还没写过随手帖。"
+            results = []
+            for p in posts:
+                created = p["metadata"].get("created", "")[:10]
+                entry = f"📮（{created}）[bucket_id:{p['id']}] {strip_wikilinks(p['content']).strip()}"
+                results.append(entry)
+                if count_tokens_approx("\n".join(results)) > max_tokens:
+                    break
+            return "=== 克克随手帖 ===\n" + "\n".join(results)
+        except Exception as e:
+            logger.error(f"Post retrieval failed: {e}")
+            return "读取随手帖失败。"
+
     # --- No args or empty query: surfacing mode (weight pool active push) ---
     # --- 无参数或空query：浮现模式（权重池主动推送）---
     if not query or not query.strip():
@@ -1267,7 +1347,8 @@ async def breath(
         if emotion_trend:
             try:
                 feels = [b for b in await bucket_mgr.list_all(include_archive=True)
-                         if b["metadata"].get("type") == "feel" and b["metadata"].get("valence") is not None]
+                         if b["metadata"].get("type") == "feel" and b["metadata"].get("valence") is not None
+                         and not _is_post(b["metadata"])]
                 feels.sort(key=lambda b: b["metadata"].get("created", ""))
                 if feels:
                     trend_lines = []
@@ -1281,27 +1362,6 @@ async def breath(
                 logger.warning(f"Emotion trend failed: {e}")
 
         return "\n\n".join(parts)
-
-    # --- Feel retrieval: domain="feel" is a special channel ---
-    # --- Feel 检索：domain="feel" 是独立入口 ---
-    if domain.strip().lower() == "feel":
-        try:
-            all_buckets = await bucket_mgr.list_all(include_archive=False)
-            feels = [b for b in all_buckets if b["metadata"].get("type") == "feel"]
-            feels.sort(key=lambda b: b["metadata"].get("created", ""), reverse=True)
-            if not feels:
-                return "没有留下过 feel。"
-            results = []
-            for f in feels:
-                created = f["metadata"].get("created", "")
-                entry = f"[{created}] [bucket_id:{f['id']}]\n{strip_wikilinks(f['content'])}"
-                results.append(entry)
-                if count_tokens_approx("\n---\n".join(results)) > max_tokens:
-                    break
-            return "=== 你留下的 feel ===\n" + "\n---\n".join(results)
-        except Exception as e:
-            logger.error(f"Feel retrieval failed: {e}")
-            return "读取 feel 失败。"
 
     # --- With args: search mode (keyword + vector dual channel) ---
     # --- 有参数：检索模式（关键词 + 向量双通道）---
@@ -1455,10 +1515,11 @@ async def hold(
     importance: int = 5,
     pinned: bool = False,
     feel: bool = False,
+    post: bool = False,
     source_bucket: str = "",    valence: float = -1,
     arousal: float = -1,
 ) -> str:
-    """存储单条记忆,自动打标+合并。tags逗号分隔,importance 1-10。pinned=True创建永久钉选桶。feel=True存储你的第一人称感受(不参与普通浮现)。source_bucket=被消化的记忆桶ID(feel模式下,标记源记忆为已消化)。"""
+    """存储单条记忆,自动打标+合并。tags逗号分隔,importance 1-10。pinned=True创建永久钉选桶。feel=True存储你的第一人称感受(不参与普通浮现)。post=True写随手帖:基于刚发生的具体事件的第一人称即时感受,1-2句50token内,原始语气,会被随机注入新窗口开机呼吸。source_bucket=被消化的记忆桶ID(feel模式下,标记源记忆为已消化)。"""
     await decay_engine.ensure_started()
 
     # --- Input validation / 输入校验 ---
@@ -1468,15 +1529,17 @@ async def hold(
     importance = max(1, min(10, importance))
     extra_tags = [t.strip() for t in tags.split(",") if t.strip()]
 
-    # --- Feel mode: store as feel type, minimal metadata ---
-    # --- Feel 模式：存为 feel 类型，最少元数据 ---
-    if feel:
+    # --- Feel/post mode: store as feel type, minimal metadata ---
+    # --- Feel/随手帖模式：存为 feel 类型，最少元数据 ---
+    # 随手帖骑 feel 通道（不衰减、不进常规浮现、原文保留），
+    # 靠 POST_TAG 区分；读取走 breath-hook 随机注入
+    if feel or post:
         # Feel valence/arousal = model's own perspective
         feel_valence = valence if 0 <= valence <= 1 else 0.5
         feel_arousal = arousal if 0 <= arousal <= 1 else 0.3
         bucket_id = await bucket_mgr.create(
             content=content,
-            tags=[],
+            tags=[POST_TAG] if post else [],
             importance=5,
             domain=[],
             valence=feel_valence,
@@ -1498,6 +1561,8 @@ async def hold(
                 await bucket_mgr.update(source_bucket.strip(), **update_kwargs)
             except Exception as e:
                 logger.warning(f"Failed to mark source as digested / 标记已消化失败: {e}")
+        if post:
+            return f"📮帖子→{bucket_id}"
         return f"🫧feel→{bucket_id}"
 
     # --- Step 1: auto-tagging / 自动打标 ---
@@ -2019,7 +2084,7 @@ async def pulse(include_archive: bool = False, show_all: bool = False, brief: bo
         elif meta.get("type") == "permanent":
             icon = "📦"
         elif meta.get("type") == "feel":
-            icon = "🫧"
+            icon = "📮" if _is_post(meta) else "🫧"
         elif meta.get("type") == "archived":
             icon = "🗄️"
         elif meta.get("resolved", False):
@@ -2152,7 +2217,9 @@ async def dream(detail_ids: str = "") -> str:
     crystal_hint = ""
     if embedding_engine and embedding_engine.enabled:
         try:
-            feels = [b for b in all_buckets if b["metadata"].get("type") == "feel"]
+            # 随手帖不进结晶检测——铁律：帖子永远不升级进核心准则区
+            feels = [b for b in all_buckets
+                     if b["metadata"].get("type") == "feel" and not _is_post(b["metadata"])]
             if len(feels) >= 3:
                 feel_embeddings = {}
                 for f in feels:

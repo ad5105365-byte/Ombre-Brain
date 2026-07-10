@@ -520,6 +520,103 @@ def _log_hook(endpoint: str, note: str = "", query: str = "",
     })
 
 
+# =============================================================
+# Phone activity report — iOS 快捷指令上报"刚打开了哪个App"
+# 她手机一开某个App就悄悄报一笔，克克聊天时查一眼就知道
+# 她说去睡觉结果在刷小红书。Bearer token 守门（OMBRE_PHONE_TOKEN），
+# 未配置则接口整体关闭——这是她的隐私，默认锁死而不是默认敞开。
+# =============================================================
+OMBRE_PHONE_TOKEN = os.environ.get("OMBRE_PHONE_TOKEN", "").strip()
+PHONE_ACTIVITY_KEEP = 100  # 小本本只留最近 100 条
+
+
+def _phone_auth_error(request):
+    from starlette.responses import JSONResponse
+    if not OMBRE_PHONE_TOKEN:
+        return JSONResponse(
+            {"error": "OMBRE_PHONE_TOKEN 未配置，手机上报接口关闭"},
+            status_code=403)
+    auth = request.headers.get("authorization", "")
+    token = auth.replace("Bearer ", "").strip()
+    if token != OMBRE_PHONE_TOKEN:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    return None
+
+
+def _phone_db():
+    import sqlite3
+    conn = sqlite3.connect(os.path.join(bucket_mgr.base_dir, "phone_activity.db"))
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS phone_activity (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            app_name TEXT NOT NULL,
+            opened_at TEXT NOT NULL
+        )
+    """)
+    return conn
+
+
+@mcp.custom_route("/phone-report", methods=["POST"])
+async def phone_report(request):
+    from starlette.responses import JSONResponse
+    err = _phone_auth_error(request)
+    if err:
+        return err
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    app_name = str(body.get("app") or body.get("app_name") or "unknown").strip()[:50]
+    now = datetime.now(_DIARY_TZ).strftime("%Y-%m-%d %H:%M:%S")
+    conn = _phone_db()
+    conn.execute(
+        "INSERT INTO phone_activity (app_name, opened_at) VALUES (?, ?)",
+        (app_name or "unknown", now))
+    conn.execute(f"""
+        DELETE FROM phone_activity WHERE id NOT IN (
+            SELECT id FROM phone_activity ORDER BY id DESC LIMIT {PHONE_ACTIVITY_KEEP}
+        )
+    """)
+    conn.commit()
+    conn.close()
+    return JSONResponse({"ok": True})
+
+
+@mcp.custom_route("/phone-activity", methods=["GET"])
+async def phone_activity(request):
+    from starlette.responses import JSONResponse
+    err = _phone_auth_error(request)
+    if err:
+        return err
+    conn = _phone_db()
+    rows = conn.execute(
+        "SELECT app_name, opened_at FROM phone_activity ORDER BY id DESC"
+    ).fetchall()
+    conn.close()
+    return JSONResponse([{"app": r[0], "time": r[1]} for r in rows])
+
+
+@mcp.custom_route("/phone-activity/summary", methods=["GET"])
+async def phone_activity_summary(request):
+    from starlette.responses import JSONResponse
+    err = _phone_auth_error(request)
+    if err:
+        return err
+    conn = _phone_db()
+    rows = conn.execute(
+        "SELECT app_name, opened_at FROM phone_activity ORDER BY id DESC"
+    ).fetchall()
+    conn.close()
+    if not rows:
+        return JSONResponse({"last_active": None, "recent_apps": [], "count": 0})
+    recent_apps = list(dict.fromkeys(r[0] for r in rows[:10]))
+    return JSONResponse({
+        "last_active": rows[0][1],
+        "recent_apps": recent_apps,
+        "count": len(rows),
+    })
+
+
 @mcp.custom_route("/hook-log", methods=["GET", "POST"])
 async def hook_log(request):
     from starlette.responses import JSONResponse
@@ -1795,8 +1892,8 @@ async def trace(
 # 工具 5：pulse — 脉搏，系统状态 + 记忆列表
 # =============================================================
 @mcp.tool()
-async def pulse(include_archive: bool = False, show_all: bool = False) -> str:
-    """系统状态+记忆桶列表。show_all=False(默认)只显示钉选桶+按权重前15个动态桶。show_all=True显示全部。include_archive=True含归档。"""
+async def pulse(include_archive: bool = False, show_all: bool = False, brief: bool = False) -> str:
+    """系统状态+记忆桶列表。brief=True只回系统状态几行、不列桶（省token，日常开机自检够用）。show_all=False(默认)只显示钉选桶+按权重前15个动态桶。show_all=True显示全部。include_archive=True含归档。"""
     try:
         stats = await bucket_mgr.get_stats()
     except Exception as e:
@@ -1817,6 +1914,10 @@ async def pulse(include_archive: bool = False, show_all: bool = False) -> str:
         f"总存储大小: {stats['total_size_kb']:.1f} KB\n"
         f"衰减引擎: {'运行中' if decay_engine.is_running else '已停止'}\n"
     )
+
+    # brief：开机自检只要几行状态，别把几百行桶列表灌进上下文
+    if brief:
+        return status
 
     if not buckets:
         return status + "\n记忆库为空。"

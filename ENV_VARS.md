@@ -51,3 +51,5 @@
 ```
 
 Webhook 推送失败仅在服务日志中以 WARNING 级别记录，**不会影响 MCP 工具的正常返回**。
+
+| `OMBRE_PHONE_TOKEN` | 无（接口关闭） | 手机活动上报的 Bearer 密码；未设置时 /phone-report /phone-activity 整体关闭 |

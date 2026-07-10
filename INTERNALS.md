@@ -120,6 +120,7 @@
 | `/health` | GET | 健康检查 |
 | `/breath-hook` | GET | SessionStart 钩子 |
 | `/dream-hook` | GET | Dream 钩子 |
+| `/ferry-hook` | POST | PreCompact 压缩自动渡口 |
 | `/dashboard` | GET | Dashboard 页面 |
 | `/api/buckets` | GET | 桶列表 🔒 |
 | `/api/bucket/{id}` | GET | 桶详情 🔒 |

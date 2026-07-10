@@ -388,11 +388,16 @@ async def health_check(request):
 # /breath-hook endpoint: Dedicated hook for SessionStart
 # 会话启动专用挂载点
 # =============================================================
+# Client hook (session_breath.py) gives up at 25s; leave headroom for
+# bucket listing + response transfer / 客户端 25 秒放弃，留出余量
+BREATH_DEHYDRATE_DEADLINE = 15
+
+
 @mcp.custom_route("/breath-hook", methods=["GET"])
 async def breath_hook(request):
     from starlette.responses import PlainTextResponse
     _ensure_reminder_loop()
-    _log_hook("breath")
+    t0 = time.monotonic()
     try:
         all_buckets = await bucket_mgr.list_all(include_archive=False)
         # handoff (ferry): fresh handoff goes first, verbatim / 新鲜交接原文置顶
@@ -427,9 +432,14 @@ async def breath_hook(request):
         # Hard cap: max 8 surfacing buckets in hook
         candidates = candidates[:8]
 
-        # Dehydrate concurrently: up to 30 serial API calls blow past the
-        # client hook timeout, so fan out with a cap to respect API rate limits
-        # 并行脱水：串行调 30 次 API 会超过客户端 hook 超时，限流并发
+        # Dehydrate concurrently with a hard deadline — same cure recall got:
+        # 20+ uncached buckets blow past the client's 25s timeout and the
+        # whole breath silently dies. Wait 15s, then fall back to raw excerpts
+        # so breath ALWAYS answers; unfinished tasks keep running to warm the
+        # dehydration cache for the next session start.
+        # 并行脱水 + 死线兜底（recall 同款药方）：冷缓存 20+ 桶会撑爆客户端
+        # 25 秒超时，整口呼吸静默憋死。等 15 秒，没好的用原文节选交卷；
+        # 没跑完的任务继续后台焐缓存，下次开机就快了。
         sem = asyncio.Semaphore(8)
 
         async def _summarize(b):
@@ -439,26 +449,34 @@ async def breath_hook(request):
                     {k: v for k, v in b["metadata"].items() if k != "tags"},
                 )
 
-        summaries = await asyncio.gather(
-            *(_summarize(b) for b in pinned + candidates),
-            return_exceptions=True,
-        )
-        pinned_summaries = summaries[:len(pinned)]
-        candidate_summaries = summaries[len(pinned):]
+        surfacing = pinned + candidates
+        tasks = [asyncio.create_task(_summarize(b)) for b in surfacing]
+        if tasks:
+            _, pending = await asyncio.wait(tasks, timeout=BREATH_DEHYDRATE_DEADLINE)
+            for t in pending:
+                t.add_done_callback(lambda ft: ft.cancelled() or ft.exception())
 
-        for summary in pinned_summaries:
-            if isinstance(summary, BaseException):
-                logger.warning(f"Breath hook dehydrate failed: {summary}")
-                continue
+        n_fallback = 0
+
+        def _summary_or_excerpt(i):
+            nonlocal n_fallback
+            task = tasks[i]
+            if task.done() and not task.exception():
+                return task.result()
+            if task.done() and task.exception():
+                logger.warning(f"Breath hook dehydrate failed: {task.exception()}")
+            n_fallback += 1
+            return strip_wikilinks(surfacing[i]["content"]).strip()[:300]
+
+        for i in range(len(pinned)):
+            summary = _summary_or_excerpt(i)
             parts.append(f"📌 [核心准则] {summary}")
             token_budget -= count_tokens_approx(summary)
 
-        for summary in candidate_summaries:
+        for i in range(len(pinned), len(surfacing)):
             if token_budget <= 0:
                 break
-            if isinstance(summary, BaseException):
-                logger.warning(f"Breath hook dehydrate failed: {summary}")
-                continue
+            summary = _summary_or_excerpt(i)
             summary_tokens = count_tokens_approx(summary)
             if summary_tokens > token_budget:
                 break
@@ -466,13 +484,17 @@ async def breath_hook(request):
             token_budget -= summary_tokens
 
         if not parts:
+            _log_hook("breath", "empty", started=t0)
             await _fire_webhook("breath_hook", {"surfaced": 0})
             return PlainTextResponse("")
         body_text = "[Ombre Brain - 记忆浮现]\n" + "\n---\n".join(parts)
+        _log_hook("breath", f"ok fallback={n_fallback}",
+                  n_matches=len(parts), chars=len(body_text), started=t0)
         await _fire_webhook("breath_hook", {"surfaced": len(parts), "chars": len(body_text)})
         return PlainTextResponse(body_text)
     except Exception as e:
         logger.warning(f"Breath hook failed: {e}")
+        _log_hook("breath", f"error:{type(e).__name__}", started=t0)
         return PlainTextResponse("")
 
 
@@ -686,6 +708,66 @@ async def dream_hook(request):
     except Exception as e:
         logger.warning(f"Dream hook failed: {e}")
         return PlainTextResponse("")
+
+
+# =============================================================
+# /ferry-hook endpoint: PreCompact auto-ferry
+# 压缩自动渡口（PreCompact hook 调用）——压缩前把最近对话打包成
+# 渡口交接，压缩完 SessionStart(source=compact) 的呼吸原文浮现，
+# 断片闭环。手写 ferry（10 分钟内）让路，不覆盖。
+# =============================================================
+MANUAL_FERRY_GUARD_MINUTES = 10
+
+
+@mcp.custom_route("/ferry-hook", methods=["POST"])
+async def ferry_hook(request):
+    from starlette.responses import JSONResponse
+    t0 = time.monotonic()
+    try:
+        body = await request.json()
+        messages = (body.get("messages") or "").strip()
+        trigger = str(body.get("trigger") or "auto")
+
+        handoffs = handoff_mod.find_handoffs(
+            await bucket_mgr.list_all(include_archive=False))
+        if handoffs:
+            keeper = handoffs[0]
+            if (not handoff_mod.is_auto_handoff(keeper)
+                    and handoff_mod.is_fresh(
+                        keeper["metadata"],
+                        hours=MANUAL_FERRY_GUARD_MINUTES / 60)):
+                _log_hook("ferry", f"pre-compact {trigger} manual-fresh-skip",
+                          started=t0)
+                return JSONResponse({"ok": True, "skipped": "manual-fresh"})
+
+        # purpose 由服务端拼，保证自动标记一定在——下次压缩才认得出
+        # 上一条也是自动的，可以放心覆盖
+        purpose = (f"{handoff_mod.AUTO_PURPOSE_MARK}（{trigger}）："
+                   f"上下文压缩前自动打包，压缩后呼吸原文浮现接续。")
+        bucket_id, overwritten = await handoff_mod.write_handoff(
+            bucket_mgr, purpose=purpose, messages=messages,
+        )
+        bucket = await bucket_mgr.get(bucket_id)
+        if bucket:
+            try:
+                await embedding_engine.generate_and_store(bucket_id, bucket["content"])
+            except Exception:
+                pass
+        _log_hook("ferry", f"pre-compact {trigger} ok",
+                  chars=len(messages), started=t0)
+        await _fire_webhook("ferry_hook", {
+            "bucket_id": bucket_id, "overwritten": overwritten,
+            "trigger": trigger,
+        })
+        return JSONResponse({"ok": True, "bucket_id": bucket_id,
+                             "overwritten": overwritten})
+    except handoff_mod.FerryError as e:
+        _log_hook("ferry", f"pre-compact invalid:{e}", started=t0)
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=400)
+    except Exception as e:
+        logger.warning(f"Ferry hook failed: {e}")
+        _log_hook("ferry", f"pre-compact error:{type(e).__name__}", started=t0)
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
 
 
 # =============================================================

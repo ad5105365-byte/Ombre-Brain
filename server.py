@@ -410,12 +410,13 @@ def _phone_recent_line() -> str | None:
     try:
         conn = _phone_db()
         row = conn.execute(
-            "SELECT app_name, opened_at FROM phone_activity ORDER BY id DESC LIMIT 1"
+            "SELECT app_name, opened_at, location FROM phone_activity ORDER BY id DESC LIMIT 1"
         ).fetchone()
         conn.close()
         if not row:
             return None
-        return f"📱 她手机最近：{row[0]}（{row[1][5:16]}）"
+        where = f"，在{row[2][:20]}" if len(row) > 2 and row[2] else ""
+        return f"📱 她手机最近：{row[0]}（{row[1][5:16]}{where}）"
     except Exception:
         return None
 
@@ -592,9 +593,15 @@ def _phone_db():
         CREATE TABLE IF NOT EXISTS phone_activity (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             app_name TEXT NOT NULL,
-            opened_at TEXT NOT NULL
+            opened_at TEXT NOT NULL,
+            location TEXT
         )
     """)
+    # 老库补列：ADD COLUMN 只会成功一次，之后报"duplicate column"忽略即可
+    try:
+        conn.execute("ALTER TABLE phone_activity ADD COLUMN location TEXT")
+    except Exception:
+        pass
     return conn
 
 
@@ -609,11 +616,12 @@ async def phone_report(request):
     except Exception:
         body = {}
     app_name = str(body.get("app") or body.get("app_name") or "unknown").strip()[:50]
+    location = str(body.get("location") or "").strip()[:120] or None
     now = datetime.now(_DIARY_TZ).strftime("%Y-%m-%d %H:%M:%S")
     conn = _phone_db()
     conn.execute(
-        "INSERT INTO phone_activity (app_name, opened_at) VALUES (?, ?)",
-        (app_name or "unknown", now))
+        "INSERT INTO phone_activity (app_name, opened_at, location) VALUES (?, ?, ?)",
+        (app_name or "unknown", now, location))
     conn.execute(f"""
         DELETE FROM phone_activity WHERE id NOT IN (
             SELECT id FROM phone_activity ORDER BY id DESC LIMIT {PHONE_ACTIVITY_KEEP}
@@ -632,10 +640,13 @@ async def phone_activity(request):
         return err
     conn = _phone_db()
     rows = conn.execute(
-        "SELECT app_name, opened_at FROM phone_activity ORDER BY id DESC"
+        "SELECT app_name, opened_at, location FROM phone_activity ORDER BY id DESC"
     ).fetchall()
     conn.close()
-    return JSONResponse([{"app": r[0], "time": r[1]} for r in rows])
+    return JSONResponse([
+        {"app": r[0], "time": r[1], **({"location": r[2]} if r[2] else {})}
+        for r in rows
+    ])
 
 
 @mcp.custom_route("/phone-activity/summary", methods=["GET"])
@@ -646,15 +657,17 @@ async def phone_activity_summary(request):
         return err
     conn = _phone_db()
     rows = conn.execute(
-        "SELECT app_name, opened_at FROM phone_activity ORDER BY id DESC"
+        "SELECT app_name, opened_at, location FROM phone_activity ORDER BY id DESC"
     ).fetchall()
     conn.close()
     if not rows:
         return JSONResponse({"last_active": None, "recent_apps": [], "count": 0})
     recent_apps = list(dict.fromkeys(r[0] for r in rows[:10]))
+    last_location = next((r[2] for r in rows if len(r) > 2 and r[2]), None)
     return JSONResponse({
         "last_active": rows[0][1],
         "recent_apps": recent_apps,
+        "last_location": last_location,
         "count": len(rows),
     })
 

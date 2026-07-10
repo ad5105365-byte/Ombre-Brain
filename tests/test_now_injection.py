@@ -35,17 +35,29 @@ def test_phone_line_silent_without_token(monkeypatch):
     assert server._phone_recent_line() is None
 
 
+def _phone_test_db(tmp_path, rows):
+    db = sqlite3.connect(tmp_path / "phone.db")
+    db.execute("CREATE TABLE phone_activity "
+               "(id INTEGER PRIMARY KEY, app_name TEXT, opened_at TEXT, location TEXT)")
+    db.executemany(
+        "INSERT INTO phone_activity (app_name, opened_at, location) VALUES (?, ?, ?)", rows)
+    db.commit()
+    db.close()
+    return lambda: sqlite3.connect(tmp_path / "phone.db")
+
+
 def test_phone_line_reads_latest(monkeypatch, tmp_path):
     monkeypatch.setattr(server, "OMBRE_PHONE_TOKEN", "secret")
-    db = sqlite3.connect(tmp_path / "phone.db")
-    db.execute("CREATE TABLE phone_activity (id INTEGER PRIMARY KEY, app_name TEXT, opened_at TEXT)")
-    db.execute("INSERT INTO phone_activity (app_name, opened_at) VALUES (?, ?)",
-               ("小红书", "2026-07-10 19:59:40"))
-    db.commit()
     monkeypatch.setattr(server, "_phone_db",
-                        lambda: sqlite3.connect(tmp_path / "phone.db"))
-    line = server._phone_recent_line()
-    assert line == "📱 她手机最近：小红书（07-10 19:59）"
+                        _phone_test_db(tmp_path, [("小红书", "2026-07-10 19:59:40", None)]))
+    assert server._phone_recent_line() == "📱 她手机最近：小红书（07-10 19:59）"
+
+
+def test_phone_line_with_location(monkeypatch, tmp_path):
+    monkeypatch.setattr(server, "OMBRE_PHONE_TOKEN", "secret")
+    monkeypatch.setattr(server, "_phone_db",
+                        _phone_test_db(tmp_path, [("微信", "2026-07-10 20:31:00", "深圳市南山区")]))
+    assert server._phone_recent_line() == "📱 她手机最近：微信（07-10 20:31，在深圳市南山区）"
 
 
 @pytest.mark.asyncio

@@ -696,13 +696,13 @@ When connecting via tunnel, ensure:
 ### Session Start Hook（自动 breath）
 
 部署后，如果你使用 Claude Code，可以在项目内激活自动浮现 hook：
-`.claude/settings.json` 已配置好 `SessionStart` hook，每次新会话或恢复会话时自动触发 `breath`，把最高权重未解决记忆推入上下文。
+`.claude/settings.json` 已配置好 `SessionStart` hook，会话开始（新建/恢复/clear/compact，云端会话同样生效）自动触发 `breath`，把最高权重未解决记忆推入上下文；`UserPromptSubmit` hook 每轮对话实时召回相关记忆。
 
 **仅在远程 HTTP 模式下有效**（`OMBRE_TRANSPORT=streamable-http`）。本地 stdio 模式下 hook 会安静退出，不影响正常使用。
 
-可以通过 `OMBRE_HOOK_URL` 环境变量指定服务器地址（默认 `http://localhost:8000`），或者设置 `OMBRE_HOOK_SKIP=1` 临时禁用。
+可以通过 `OMBRE_HOOK_URL` 环境变量指定服务器地址（默认为 Render 部署地址），或者设置 `OMBRE_HOOK_SKIP=1` 临时禁用。怀疑注入没起效时，先看 `GET /hook-log` 行车记录仪：客户端钩子每次执行（含失败）都会报到，"钩子没跑"和"钩子跑了但半路死掉"一眼分清。
 
-If using Claude Code, `.claude/settings.json` configures a `SessionStart` hook that auto-calls `breath` on each new or resumed session, surfacing your highest-weight unresolved memories as context. Only active in remote HTTP mode. Set `OMBRE_HOOK_SKIP=1` to disable temporarily.
+If using Claude Code, `.claude/settings.json` configures a `SessionStart` hook that auto-calls `breath` on every session start (new/resume/clear/compact, including remote web sessions), surfacing your highest-weight unresolved memories as context; a `UserPromptSubmit` hook recalls relevant memories per message. Only active in remote HTTP mode. Set `OMBRE_HOOK_SKIP=1` to disable temporarily. If injection seems dead, check the `GET /hook-log` flight recorder — client hooks report every run (including failures).
 
 ## 更新 / How to Update
 

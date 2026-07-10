@@ -2,24 +2,10 @@
   "hooks": {
     "SessionStart": [
       {
-        "matcher": "startup",
         "hooks": [
           {
             "type": "command",
-            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/session_breath.py\"",
-            "shell": "/bin/bash",
-            "timeout": 60,
-            "statusMessage": "Ombre Brain 正在浮现记忆..."
-          }
-        ]
-      },
-      {
-        "matcher": "resume",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/session_breath.py\"",
-            "shell": "/bin/bash",
+            "command": "python3 \"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/session_breath.py\"",
             "timeout": 60,
             "statusMessage": "Ombre Brain 正在浮现记忆..."
           }
@@ -28,12 +14,10 @@
     ],
     "UserPromptSubmit": [
       {
-        "matcher": "",
         "hooks": [
           {
             "type": "command",
-            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/memory_recall.py\"",
-            "shell": "/bin/bash",
+            "command": "python3 \"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/memory_recall.py\"",
             "timeout": 10
           }
         ]

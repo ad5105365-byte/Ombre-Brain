@@ -64,8 +64,23 @@ def main():
             result = response.read().decode("utf-8").strip()
             if result:
                 print(result)
-    except (urllib.error.URLError, OSError):
-        pass
+    except Exception as e:
+        # 失败也要留痕：服务端只见得到打进来的电话，客户端超时/断网
+        # 这类"根本没打通"的失败，只有靠这里报到行车记录仪才看得见
+        _report(base_url, f"memory_recall err={type(e).__name__}")
+
+
+def _report(base_url, note):
+    try:
+        payload = json.dumps({"note": note}).encode("utf-8")
+        req = urllib.request.Request(
+            f"{base_url}/hook-log",
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=1.5):
+            pass
     except Exception:
         pass
 

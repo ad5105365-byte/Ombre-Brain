@@ -878,11 +878,28 @@ async def breath(
     date_to: str = "",
     include_dormant: bool = False,
     emotion_trend: bool = False,
+    bucket_id: str = "",
 ) -> str:
-    """检索/浮现记忆。mode=summary(默认)每桶一行摘要,mode=full返回全文。有query时忽略mode始终full。max_results默认5,超出部分注明数量。date_from/date_to按YYYY-MM-DD过滤。include_dormant=True含休眠桶。emotion_trend=True附情绪时间线。importance_min>=1按重要度批量拉取。"""
+    """检索/浮现记忆。mode=summary(默认)每桶一行摘要,mode=full返回全文。有query时忽略mode始终full。bucket_id=门牌号直读该桶完整原文(不搜索不脱水,含feel/归档桶)。max_results默认5,超出部分注明数量。date_from/date_to按YYYY-MM-DD过滤。include_dormant=True含休眠桶。emotion_trend=True附情绪时间线。importance_min>=1按重要度批量拉取。"""
     await decay_engine.ensure_started()
     max_results = min(max_results, 50)
     max_tokens = min(max_tokens, 20000)
+
+    # --- Direct read by id: 门牌号直读，整桶原文，不脱水不搜索 ---
+    # 无名 feel 桶起名、固化桶审查降级，都得先能"指着门牌看原文"
+    if bucket_id:
+        bucket = await bucket_mgr.get(bucket_id.strip())
+        if not bucket:
+            return f"未找到记忆桶: {bucket_id}"
+        meta = bucket["metadata"]
+        domains = ", ".join(meta.get("domain", []) or [])
+        header = (
+            f"[bucket_id:{bucket['id']}] {meta.get('name') or '(无名)'} "
+            f"[类型:{meta.get('type', '?')}] [主题:{domains or '无'}] "
+            f"[重要:{meta.get('importance', '?')}] "
+            f"[创建:{str(meta.get('created', ''))[:10]}]"
+        )
+        return header + "\n" + strip_wikilinks(bucket.get("content", ""))
 
     # --- importance_min mode: bulk fetch by importance threshold ---
     # --- 重要度批量拉取模式：跳过语义搜索，按 importance 降序返回 ---
@@ -2071,6 +2088,21 @@ async def archive_session(
 from image_store import is_configured as _img_configured, upload_image as _img_upload, ensure_bucket as _img_ensure_bucket
 
 @mcp.tool()
+def _photo_short_desc(description: str, limit: int = 60) -> str:
+    """照片桶名用的描述截断：宁可短一点，也别把"紫色发夹"剪成"紫色发"。
+    Cut at a natural boundary (comma/space) instead of mid-word; the old
+    [:30] hard cut left names ending in half a word on the dashboard."""
+    desc = " ".join(description.split())
+    if len(desc) <= limit:
+        return desc
+    short = desc[:limit]
+    for sep in ("，", "、", ",", " ", "；"):
+        idx = short.rfind(sep)
+        if idx >= limit // 3:
+            return short[:idx]
+    return short
+
+
 async def save_image(
     description: str,
     image_base64: str = "",
@@ -2110,7 +2142,7 @@ async def save_image(
             domain=["照片"],
             valence=0.6,
             arousal=0.3,
-            name=f"照片：{description.strip()[:30]}",
+            name=f"照片 {_photo_short_desc(description)}",
             bucket_type="permanent",
         )
         try:

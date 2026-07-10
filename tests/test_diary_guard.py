@@ -212,3 +212,55 @@ async def test_search_finds_diary_by_spoken_date(bucket_mgr):
     results = await bucket_mgr.search(query + " " + " ".join(hints), limit=5)
     assert results, "expanded query should match something"
     assert "2026-07-05" in results[0]["metadata"]["name"]
+
+
+# ---------- 7. doubled-date repair (复读机门牌矫正) ----------
+
+@pytest.mark.asyncio
+async def test_patrol_repairs_doubled_date(bucket_mgr):
+    bid = await bucket_mgr.create(
+        content="她哭了六个小时试了三个窗口",
+        tags=[], importance=9, domain=["日常"],
+        valence=0.4, arousal=0.6, name="日记 2026-06-2006-15 情感波动",
+    )
+    with patch.object(server, "bucket_mgr", bucket_mgr):
+        fixed = await server._diary_patrol_once()
+    assert fixed == 1
+    b = await bucket_mgr.get(bid)
+    name = b["metadata"]["name"]
+    # 真实日期是后半段 06-15，错误的创建日期 06-20 被吞掉
+    assert "2026-06-15" in name
+    assert "2006" not in name
+    assert "情感波动" in name
+
+
+@pytest.mark.asyncio
+async def test_patrol_doubled_date_same_day_collapses(bucket_mgr):
+    bid = await bucket_mgr.create(
+        content="记忆库整理",
+        tags=[], importance=7, domain=["日常"],
+        valence=0.8, arousal=0.6, name="日记 2026-06-2006-20记忆库整理",
+    )
+    with patch.object(server, "bucket_mgr", bucket_mgr):
+        fixed = await server._diary_patrol_once()
+    assert fixed == 1
+    b = await bucket_mgr.get(bid)
+    assert "2026-06-20" in b["metadata"]["name"]
+    assert "2006-20" not in b["metadata"]["name"]
+
+
+@pytest.mark.asyncio
+async def test_patrol_doubled_date_ignores_non_diary_and_normal(bucket_mgr):
+    # 名字不以"日记"开头的桶不动；正常带日期的日记也不动
+    await bucket_mgr.create(
+        content="技术讨论提到 2026-06-2006-15 这个字符串",
+        tags=[], importance=5, domain=["数字"],
+        valence=0.5, arousal=0.3, name="技术讨论 2026-06-2006-15",
+    )
+    await bucket_mgr.create(
+        content="正常日记", tags=[], importance=7, domain=["日常"],
+        valence=0.8, arousal=0.5, name="【日记 2026-07-06】亲密时光",
+    )
+    with patch.object(server, "bucket_mgr", bucket_mgr):
+        fixed = await server._diary_patrol_once()
+    assert fixed == 0

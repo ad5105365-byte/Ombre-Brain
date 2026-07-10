@@ -307,7 +307,21 @@ class BucketManager:
             post["type"] = "permanent"
             with open(file_path, "w", encoding="utf-8") as f:
                 f.write(frontmatter.dumps(post))
-            self._move_bucket(file_path, self.permanent_dir, domain)
+            file_path = self._move_bucket(file_path, self.permanent_dir, domain)
+
+        # --- Explicit type change: demote permanent ↔ promote dynamic ---
+        # --- 显式改类型：固化桶降级 / 动态桶升格 ---
+        # 钉选/保护桶不许降级——先取消钉选，防止"降了又被自动升回去"的循环
+        wanted_type = kwargs.get("bucket_type")
+        if (wanted_type in ("dynamic", "permanent")
+                and post.get("type") != wanted_type
+                and not (wanted_type == "dynamic"
+                         and (post.get("pinned") or post.get("protected")))):
+            post["type"] = wanted_type
+            with open(file_path, "w", encoding="utf-8") as f:
+                f.write(frontmatter.dumps(post))
+            target = self.dynamic_dir if wanted_type == "dynamic" else self.permanent_dir
+            self._move_bucket(file_path, target, domain)
 
         logger.info(f"Updated bucket / 更新记忆桶: {bucket_id}")
         return True

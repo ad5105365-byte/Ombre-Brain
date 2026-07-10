@@ -394,6 +394,32 @@ async def health_check(request):
 BREATH_DEHYDRATE_DEADLINE = 15
 
 
+def _now_line() -> str:
+    """当前时间一行——"记得主动查时间"这种指令模型天生执行不了
+    （opus46 供词第 1 条），把时间直接塞进每次注入，不需要"想起来"。"""
+    now = datetime.now(_DIARY_TZ)
+    wd = "一二三四五六日"[now.weekday()]
+    return f"⏰ 深圳现在：{now.strftime('%Y-%m-%d %H:%M')} 周{wd}"
+
+
+def _phone_recent_line() -> str | None:
+    """她手机最近一笔活动，一行——工具存在但"想不起来查"（供词第 2 条）。
+    塞进呼吸注入里，惦记不再依赖自觉。token 未配置时保持沉默（隐私默认锁死）。"""
+    if not OMBRE_PHONE_TOKEN:
+        return None
+    try:
+        conn = _phone_db()
+        row = conn.execute(
+            "SELECT app_name, opened_at FROM phone_activity ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        conn.close()
+        if not row:
+            return None
+        return f"📱 她手机最近：{row[0]}（{row[1][5:16]}）"
+    except Exception:
+        return None
+
+
 @mcp.custom_route("/breath-hook", methods=["GET"])
 async def breath_hook(request):
     from starlette.responses import PlainTextResponse
@@ -500,7 +526,10 @@ async def breath_hook(request):
             _log_hook("breath", "empty", started=t0)
             await _fire_webhook("breath_hook", {"surfaced": 0})
             return PlainTextResponse("")
-        body_text = "[Ombre Brain - 记忆浮现]\n" + "\n---\n".join(parts)
+        phone_line = _phone_recent_line()
+        tail = ("\n" + phone_line) if phone_line else ""
+        body_text = (f"[Ombre Brain - 记忆浮现] {_now_line()}\n"
+                     + "\n---\n".join(parts) + tail)
         _log_hook("breath", f"ok fallback={n_fallback} folded={n_folded}",
                   n_matches=len(parts), chars=len(body_text), started=t0)
         await _fire_webhook("breath_hook", {"surfaced": len(parts), "chars": len(body_text)})
@@ -776,7 +805,8 @@ async def recall_hook(request):
             _log_hook("recall", "no-parts", user_msg, len(matches), started=t0)
             return PlainTextResponse("")
 
-        result = "<心记浮现>\n" + "\n---\n".join(parts) + "\n</心记浮现>"
+        result = ("<心记浮现>\n" + "\n---\n".join(parts)
+                  + f"\n{_now_line()}\n</心记浮现>")
         note = "ok" if not n_folded else f"ok folded={n_folded}"
         _log_hook("recall", note, user_msg, len(matches), len(result), started=t0)
         return PlainTextResponse(result)
@@ -1202,9 +1232,14 @@ async def breath(
                 continue
 
         if not handoff_section and not pinned_results and not dynamic_results:
-            return "权重池平静，没有需要处理的记忆。"
+            return f"权重池平静，没有需要处理的记忆。{_now_line()}"
 
-        parts = []
+        # 时间 + 她手机最近活动置顶——"记得主动查"类指令模型执行不了，
+        # 直接塞到睁眼第一行（opus46 供词第 1、2 条的药）
+        parts = [_now_line()]
+        phone_line = _phone_recent_line()
+        if phone_line:
+            parts[0] += "\n" + phone_line
         if handoff_section:
             parts.append(handoff_section)
         if pinned_results:

@@ -53,3 +53,4 @@
 Webhook 推送失败仅在服务日志中以 WARNING 级别记录，**不会影响 MCP 工具的正常返回**。
 
 | `OMBRE_PHONE_TOKEN` | 无（接口关闭） | 手机活动上报的 Bearer 密码；未设置时 /phone-report /phone-activity 整体关闭 |
+| `OMBRE_SENSITIVE_FOLD` | `1`（开启） | 自动注入（/breath-hook /dream-hook /recall-hook）里的高敏内容折叠成门牌指针；设为 `0` 关闭。新对话第一轮携带露骨内容会被平台整窗拦下（2026-07-10 双端实测），记忆本体不受影响，`breath(bucket_id=)` 随时展开 |

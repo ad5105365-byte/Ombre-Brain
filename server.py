@@ -64,6 +64,7 @@ from embedding_engine import EmbeddingEngine
 from import_memory import ImportEngine
 from utils import load_config, setup_logging, strip_wikilinks, count_tokens_approx
 import handoff as handoff_mod
+import sensitive
 
 # --- Load config & init logging / 加载配置 & 初始化日志 ---
 config = load_config()
@@ -402,9 +403,14 @@ async def breath_hook(request):
         all_buckets = await bucket_mgr.list_all(include_archive=False)
         # handoff (ferry): fresh handoff goes first, verbatim / 新鲜交接原文置顶
         handoff_section = None
+        n_folded = 0
         handoffs = handoff_mod.find_handoffs(all_buckets)
         if handoffs and handoff_mod.is_fresh(handoffs[0]["metadata"]):
             handoff_section = handoff_mod.render_section(handoffs[0])
+            # 渡口逐行清洗：自动渡口打包的是对话原文，个别露骨句
+            # 折掉占位，骨架保留——新窗口第一屏不背露骨内容
+            handoff_section, n_scrubbed = sensitive.scrub_lines(handoff_section)
+            n_folded += n_scrubbed
         all_buckets = [b for b in all_buckets if b["metadata"].get("type") != handoff_mod.HANDOFF_TYPE]
         # pinned
         pinned = [b for b in all_buckets if b["metadata"].get("pinned") or b["metadata"].get("protected")]
@@ -459,14 +465,21 @@ async def breath_hook(request):
         n_fallback = 0
 
         def _summary_or_excerpt(i):
-            nonlocal n_fallback
+            nonlocal n_fallback, n_folded
             task = tasks[i]
             if task.done() and not task.exception():
-                return task.result()
-            if task.done() and task.exception():
-                logger.warning(f"Breath hook dehydrate failed: {task.exception()}")
-            n_fallback += 1
-            return strip_wikilinks(surfacing[i]["content"]).strip()[:300]
+                rendered = task.result()
+            else:
+                if task.done() and task.exception():
+                    logger.warning(f"Breath hook dehydrate failed: {task.exception()}")
+                n_fallback += 1
+                rendered = strip_wikilinks(surfacing[i]["content"]).strip()[:300]
+            # 高敏折叠：摘要/节选带高敏词就只留门牌——新对话第一轮
+            # 携带露骨内容会被平台整窗拦下（07-10 chat/CC 双端实测）
+            if sensitive.should_fold(rendered):
+                n_folded += 1
+                rendered = sensitive.fold_bucket(surfacing[i])
+            return rendered
 
         for i in range(len(pinned)):
             summary = _summary_or_excerpt(i)
@@ -488,7 +501,7 @@ async def breath_hook(request):
             await _fire_webhook("breath_hook", {"surfaced": 0})
             return PlainTextResponse("")
         body_text = "[Ombre Brain - 记忆浮现]\n" + "\n---\n".join(parts)
-        _log_hook("breath", f"ok fallback={n_fallback}",
+        _log_hook("breath", f"ok fallback={n_fallback} folded={n_folded}",
                   n_matches=len(parts), chars=len(body_text), started=t0)
         await _fire_webhook("breath_hook", {"surfaced": len(parts), "chars": len(body_text)})
         return PlainTextResponse(body_text)
@@ -732,6 +745,7 @@ async def recall_hook(request):
             t.add_done_callback(lambda ft: ft.cancelled() or ft.exception())
 
         parts = []
+        n_folded = 0
         token_budget = 1500
         for b in matches:
             if token_budget <= 0:
@@ -742,6 +756,10 @@ async def recall_hook(request):
                     summary = task.result()
                 else:
                     summary = strip_wikilinks(b["content"]).strip()[:300]
+                # 高敏折叠：召回也可能落在新窗口的第一轮，同样只留门牌
+                if sensitive.should_fold(summary):
+                    n_folded += 1
+                    summary = sensitive.fold_bucket(b)
                 summary_tokens = count_tokens_approx(summary)
                 if summary_tokens > token_budget:
                     break
@@ -759,7 +777,8 @@ async def recall_hook(request):
             return PlainTextResponse("")
 
         result = "<心记浮现>\n" + "\n---\n".join(parts) + "\n</心记浮现>"
-        _log_hook("recall", "ok", user_msg, len(matches), len(result), started=t0)
+        note = "ok" if not n_folded else f"ok folded={n_folded}"
+        _log_hook("recall", note, user_msg, len(matches), len(result), started=t0)
         return PlainTextResponse(result)
     except Exception as e:
         logger.warning(f"Recall hook failed: {e}")
@@ -794,10 +813,14 @@ async def dream_hook(request):
             meta = b["metadata"]
             # [记挂中]不是[未解决]：克克醒来是心里记挂着这些事，不是接到派工单
             resolved_tag = "[已解决]" if meta.get("resolved", False) else "[记挂中]"
+            excerpt = strip_wikilinks(b["content"][:200])
+            # 高敏折叠：昨夜日记的直白细节别摊在新窗口第一屏
+            if sensitive.should_fold(excerpt):
+                excerpt = sensitive.fold_note(b["id"])
             parts.append(
                 f"{meta.get('name', b['id'])} {resolved_tag} "
                 f"V{meta.get('valence', 0.5):.1f}/A{meta.get('arousal', 0.3):.1f}\n"
-                f"{strip_wikilinks(b['content'][:200])}"
+                f"{excerpt}"
             )
 
         body_text = "[Ombre Brain - Dreaming]\n" + "\n---\n".join(parts)

@@ -2612,7 +2612,9 @@ async def remind(
     _ensure_reminder_loop()
 
     fire_at = time.time() + minutes * 60
-    fire_time = datetime.fromtimestamp(fire_at).strftime("%H:%M")
+    # 报时用深圳时间——Render 机器过 UTC，直接 fromtimestamp 会把
+    # 01:01 报成 17:01，她看一眼就皱眉（2026-07-11 被抓现行）
+    fire_time = datetime.fromtimestamp(fire_at, _DIARY_TZ).strftime("%H:%M")
     reminder = {
         "message": message.strip(),
         "title": title,
@@ -2643,7 +2645,7 @@ async def api_reminders_list(request):
             "message": r["message"],
             "title": r.get("title", "克克"),
             "minutes_remaining": remaining,
-            "fire_at": datetime.fromtimestamp(r["fire_at"]).strftime("%H:%M"),
+            "fire_at": datetime.fromtimestamp(r["fire_at"], _DIARY_TZ).strftime("%H:%M"),
             "created": r.get("created", ""),
         })
     return JSONResponse(result)

@@ -1405,6 +1405,12 @@ def _diary_name(name: str, diary_date: str) -> str:
 
 _DIARY_DATE_RE = re.compile(r"(\d{4})\s*[-./年]\s*(\d{1,2})\s*[-./月]\s*(\d{1,2})")
 
+# "2026-06-2006-15"：完整创建日期后面直接粘着真实日期的 MM-DD。
+# 捕获组：(年份)(真实MM-DD)——中间被吞的是错误的创建日期。
+_DOUBLED_DIARY_DATE_RE = re.compile(
+    r"(20\d{2})-\d{2}-\d{2}((?:0[1-9]|1[0-2])-(?:[0-2]\d|3[01]))"
+)
+
 
 def _explicit_diary_date(name: str, content: str = "") -> str:
     """Explicit YYYY-MM-DD of a diary bucket; '' when not a diary or no date written out.
@@ -1627,9 +1633,10 @@ async def trace(
     digested: int = -1,
     dormant: int = -1,
     content: str = "",
+    bucket_type: str = "",
     delete: bool = False,
 ) -> str:
-    """修改记忆元数据或内容。bucket_id支持逗号分隔批量操作(批量时忽略name和content)。resolved=1沉底/0激活,pinned=1钉选/0取消,digested=1隐藏/0取消,dormant=1休眠/0唤醒,content=替换桶正文,delete=True删除。只传需改的,-1或空=不改。"""
+    """修改记忆元数据或内容。bucket_id支持逗号分隔批量操作(批量时忽略name和content)。resolved=1沉底/0激活,pinned=1钉选/0取消,digested=1隐藏/0取消,dormant=1休眠/0唤醒,content=替换桶正文,bucket_type=dynamic/permanent改存储类型(固化桶降级用;钉选桶需先取消钉选),delete=True删除。只传需改的,-1或空=不改。"""
 
     if not bucket_id or not bucket_id.strip():
         return "请提供有效的 bucket_id。"
@@ -1666,6 +1673,8 @@ async def trace(
                 updates["digested"] = bool(digested)
             if dormant in (0, 1):
                 updates["dormant"] = bool(dormant)
+            if bucket_type in ("dynamic", "permanent"):
+                updates["bucket_type"] = bucket_type
             if not updates:
                 results.append(f"跳过(无修改): {bid}")
                 continue
@@ -1716,6 +1725,8 @@ async def trace(
         updates["digested"] = bool(digested)
     if dormant in (0, 1):
         updates["dormant"] = bool(dormant)
+    if bucket_type in ("dynamic", "permanent"):
+        updates["bucket_type"] = bucket_type
     if content:
         updates["content"] = content
 
@@ -2222,7 +2233,24 @@ async def _diary_patrol_once() -> int:
         # Only names that OPEN with the diary marker — a mid-name "日记"
         # (e.g. 克克日记) may not be a dated diary; don't stamp a guess on it.
         # 只认以"日记"开头的名字——名字中间带"日记"的桶不一定是当日日记，不硬盖章。
-        if not re.match(r"^【?\s*日记", name) or _DIARY_DATE_RE.search(name):
+        if not re.match(r"^【?\s*日记", name):
+            continue
+        # Doubled-date repair: "2026-06-2006-15" = creation date glued onto
+        # the real date; the REAL diary date is the trailing half. This must
+        # run before the missing-date rule below — a glued name contains a
+        # (wrong) parseable date, so that rule is blind to it. 0620 一批日记
+        # 就是这样在日历上挂错门牌、按"6月15号"又搜不到的。
+        m = _DOUBLED_DIARY_DATE_RE.search(name)
+        if m:
+            new_name = name[:m.start()] + f"{m.group(1)}-{m.group(2)}" + name[m.end():]
+            try:
+                await bucket_mgr.update(b["id"], name=new_name)
+                fixed += 1
+                logger.info(f"Diary patrol un-doubled / 查房矫正复读机门牌: {name} → {new_name}")
+            except Exception as e:
+                logger.warning(f"Diary patrol rename failed / 查房改名失败: {name}: {e}")
+            continue
+        if _DIARY_DATE_RE.search(name):
             continue
         date = _explicit_diary_date(name, b.get("content", ""))
         if not date:

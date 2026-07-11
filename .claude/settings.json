@@ -34,6 +34,17 @@
           }
         ]
       }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/route_observe.py\"",
+            "timeout": 10
+          }
+        ]
+      }
     ]
   }
 }

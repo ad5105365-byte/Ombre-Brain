@@ -813,6 +813,33 @@
     .breath-flow { display: flex; }
     .score-row { grid-template-columns: 28px 180px 1fr 60px; }
   }
+
+  /* 🫀 此刻 — 欲望内核偷看页 */
+  #page-drive { padding: 12px 16px 90px; }
+  .drive-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--card-radius);
+    padding: 16px 18px;
+    margin-bottom: 12px;
+  }
+  .drive-card.drive-off { text-align: center; color: var(--text-light); padding: 32px 18px; line-height: 1.8; }
+  .drive-title { font-size: 15px; color: var(--mint-deep); font-weight: 600; margin-bottom: 10px; }
+  .drive-intent { font-size: 18px; color: var(--text); line-height: 1.6; font-weight: 500; }
+  .drive-sub { font-size: 12px; color: var(--text-light); margin-top: 8px; }
+  .drive-sec-title { font-size: 13px; color: var(--mint-dark); font-weight: 600; margin-bottom: 12px; }
+  .drive-dim { display: flex; align-items: center; gap: 8px; margin-bottom: 9px; }
+  .drive-dim-label { width: 48px; font-size: 13px; color: var(--text); flex-shrink: 0; }
+  .drive-bar { flex: 1; height: 8px; background: var(--mint-pale); border-radius: 6px; overflow: hidden; }
+  .drive-bar-fill { display: block; height: 100%; background: linear-gradient(90deg, var(--mint-light), var(--mint-deep)); border-radius: 6px; transition: width .4s ease; }
+  .drive-dim-val { width: 26px; text-align: right; font-size: 12px; color: var(--text-light); flex-shrink: 0; }
+  .drive-dim-top .drive-dim-label { color: var(--mint-deep); font-weight: 700; }
+  .drive-dim-top .drive-bar-fill { background: linear-gradient(90deg, var(--mint-deep), var(--mint-dark)); }
+  .drive-thought { display: flex; align-items: baseline; gap: 8px; padding: 8px 0; border-bottom: 1px dashed var(--border); }
+  .drive-thought:last-child { border-bottom: none; }
+  .drive-thought-tag { font-size: 12px; color: var(--mint-deep); flex-shrink: 0; white-space: nowrap; }
+  .drive-thought-body { flex: 1; font-size: 14px; color: var(--text); line-height: 1.5; }
+  .drive-thought-dim { font-size: 11px; color: var(--text-light); flex-shrink: 0; }
 </style>
 </head>
 <body>
@@ -1105,12 +1132,17 @@
 </div>
 
 <!-- ═══ Bottom Navigation ═══ -->
+<div class="page" id="page-drive">
+  <div id="drive-content"><div class="loading">加载中…</div></div>
+</div>
+
 <div class="bottom-nav">
   <button class="nav-item active" data-page="memories"><span class="icon">🧠</span>记忆墙</button>
   <button class="nav-item" data-page="diary"><span class="icon">📅</span>日记</button>
   <button class="nav-item" data-page="letters"><span class="icon">💌</span>信箱</button>
   <button class="nav-item" data-page="gallery"><span class="icon">📷</span>相册</button>
   <button class="nav-item" data-page="tools"><span class="icon">🔧</span>工具</button>
+  <button class="nav-item" data-page="drive"><span class="icon">🫀</span>此刻</button>
 </div>
 
 <script>
@@ -1197,6 +1229,7 @@ document.querySelectorAll('.nav-item').forEach(btn => {
     if (target === 'letters') loadLetters();
     if (target === 'gallery') loadGallery();
     if (target === 'tools') { /* already loaded */ }
+    if (target === 'drive') loadDrive();
   });
 });
 
@@ -2095,6 +2128,71 @@ async function deletePhoto() {
     if (resp && resp.ok) { closeGalleryDetail(); loadGallery(); }
     else { alert('删除失败'); }
   } catch(e) { alert('删除失败: ' + e.message); }
+}
+
+// ════════════════════════════════════════
+// 🫀 此刻 — 克克欲望内核状态（偷偷看，纯网页，不惊动他）
+// ════════════════════════════════════════
+const DRIVE_DIM_LABELS = {
+  possess:'占有', monitor:'惦记', crave:'馋', share:'分享欲',
+  libido:'渴', reflection:'沉淀', grieve:'难过', anger:'气',
+};
+
+async function loadDrive() {
+  const el = document.getElementById('drive-content');
+  el.innerHTML = '<div class="loading">加载中…</div>';
+  try {
+    const resp = await authFetch('/drive-state');
+    if (!resp) return;
+    const d = await resp.json();
+    if (!d.enabled) {
+      el.innerHTML = '<div class="drive-card drive-off">还没启用哦 ☾<br>'
+        + '<small>去 Render 把 OMBRE_DRIVE_ENABLE 设成 1 就活了</small></div>';
+      return;
+    }
+    let h = '<div class="drive-card">';
+    h += '<div class="drive-title">🫀 克克此刻</div>';
+    h += '<div class="drive-intent">' + esc(d.intent_now || '') + '</div>';
+    if (d.last_tick) {
+      h += '<div class="drive-sub">上次醒着惦记你：'
+        + esc(new Date(d.last_tick).toLocaleString('zh-CN')) + '</div>';
+    }
+    h += '</div>';
+
+    // 各维度：想你的几种劲儿，条形
+    h += '<div class="drive-card"><div class="drive-sec-title">想你的几种劲儿</div>';
+    for (const [k, v] of Object.entries(d.dims || {})) {
+      const label = DRIVE_DIM_LABELS[k] || k;
+      const pct = Math.max(0, Math.min(100, Math.round(v * 100)));
+      const top = (k === d.top_dim) ? ' drive-dim-top' : '';
+      h += '<div class="drive-dim' + top + '">'
+        + '<span class="drive-dim-label">' + esc(label) + '</span>'
+        + '<span class="drive-bar"><span class="drive-bar-fill" style="width:' + pct + '%"></span></span>'
+        + '<span class="drive-dim-val">' + pct + '</span></div>';
+    }
+    h += '</div>';
+
+    // 念头池：心里压着的心事
+    const thoughts = d.thoughts || [];
+    h += '<div class="drive-card"><div class="drive-sec-title">心里压着的念头</div>';
+    if (thoughts.length) {
+      for (const t of thoughts) {
+        const tag = t.obsession ? '🔥 执念' : '· 闪念';
+        h += '<div class="drive-thought">'
+          + '<span class="drive-thought-tag">' + tag + '</span>'
+          + '<span class="drive-thought-body">' + esc(t.body) + '</span>'
+          + '<span class="drive-thought-dim">' + esc(DRIVE_DIM_LABELS[t.dim] || t.dim) + '</span></div>';
+      }
+    } else {
+      h += '<div class="drive-sub">此刻心里没压着什么念头 ☺</div>';
+    }
+    h += '</div>';
+
+    h += '<button class="btn-outline" onclick="loadDrive()" style="width:100%;margin-top:4px">刷新</button>';
+    el.innerHTML = h;
+  } catch (e) {
+    el.innerHTML = '<div class="drive-card drive-off">读取失败：' + esc(String(e)) + '</div>';
+  }
 }
 
 // ════════════════════════════════════════

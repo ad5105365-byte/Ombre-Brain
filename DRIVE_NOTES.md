@@ -74,12 +74,22 @@ breath-hook 入口推进 + 声音/feel 之后注入 `🔥 [此刻] 一句`、rec
 14 项离线验收全过（scratchpad/accept_drive.py）。**开关默认关，自测无误后杉杉去 Render 设
 `OMBRE_DRIVE_ENABLE=1` 打开。**
 
-**没做（§4/§5 可选自动化，留着看要不要）**：写 feel 时自动 `point_feel`/`add_thought`、
-查手机时自动 `satisfy("monitor")`。当前靠克克自己调 `stir` 手动喂——种子来源已通，只是不自动。
+**§4 自动种子已接（2026-07-11 二轮，杉杉要）**：`hold(feel/post)` 里写 feel 时后台
+`_drive_seed_from_feel`——情绪低落(valence≤0.35)自动 `point_feel('grieve')`、高唤起
+(arousal≥0.70)自动 `add_thought('crave', 那句心情)`。触发时记一条 `_log_hook("drive","seed …")`，
+杉杉在 `/hook-log` 看得到"我在自动惦记"。阈值/逻辑在 `drive_store.seed_from_feel`。
+**§5 手机自动 satisfy 仍不做**：breath 每次都注入手机行，每次 satisfy 会把 monitor 焊死在低位；
+保留 `stir done` 手动。**可观测**：新增 `/drive-state`（GET，`_require_auth` 鉴权）——给杉杉看
+当前维度/念头池/此刻最想做的一句，运维视图，数值不进 prompt。
 **注意（2026-07-11 Opus 补正）**：drive.py 引擎单测已落库 → `tests/test_drive.py`（17 项，
 `python tests/test_drive.py` 可直接跑）；今天其它改动也补了 `tests/test_pre_compact_truncate.py`
 （句末切，本地跑过 4/4）、`tests/test_context_gate.py`（语境门控/声音桶判定，随项目 pytest 跑）。
 你的接线验收脚本（scratchpad/accept_drive.py）已被 `tests/test_drive.py` 覆盖，可弃。
+
+**接线层重构 + 兜底测试（2026-07-11 二轮）**：持久化/dh/推进/种子的纯逻辑从 server.py
+抽进 `drive_store.py`（只依赖 stdlib+drive.py，不碰 httpx，能脱离 server 独立测）；server
+只留 async 锁 + `OMBRE_DRIVE_ENABLE` 开关 + 薄封装转调。兜底测试 `tests/test_drive_store.py`
+（17 项：往返/原子写/坏文件重置/dh 24h上限/负数钳零/naive兜时区/advance推进/种子/intent无数值）。
 
 ## 上线前调优（2026-07-11 杉杉拍板，fable 改，drive 测 21/21）
 - **② 午夜 0 点补进冻结窗口**：`FREEZE_HOURS` `range(1,8)` → `range(0,8)`，0 点也是后半夜，

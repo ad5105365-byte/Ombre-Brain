@@ -829,10 +829,10 @@ def _is_hot(meta: dict) -> bool:
 # 每次醒着来 breath/recall 时按距上次的小时数推进——他睡就不推进，也对。
 # =============================================================
 import drive as drive_mod
+import drive_store
 
 OMBRE_DRIVE_ENABLE = os.environ.get("OMBRE_DRIVE_ENABLE", "0").strip().lower() in (
     "1", "true", "yes", "on")
-_DRIVE_MAX_DH = 24.0  # 久睡后一次最多推进 24h，防醒来暴涨顶成"此刻想要"
 _drive_lock = None    # 懒建：在运行的事件循环里创建，避免 import 期无 loop
 
 
@@ -843,81 +843,76 @@ def _get_drive_lock():
     return _drive_lock
 
 
-def _drive_path() -> str:
-    # 跟 phone_activity.db 同目录，挂 Render 持久盘
-    return os.path.join(bucket_mgr.base_dir, "drive_state.json")
-
-
+# 薄封装：持久化/推进/渲染/种子的纯逻辑都在 drive_store.py（可脱离 server 独立测），
+# 这里只注入 bucket_mgr.base_dir / _DIARY_TZ / asyncio 锁 / OMBRE_DRIVE_ENABLE 开关。
 def _load_drive():
-    """读盘 → (DriveState, last_tick: datetime|None)。缺文件/损坏都返回全新状态。"""
-    try:
-        with open(_drive_path(), "r", encoding="utf-8") as f:
-            d = _json_lib.load(f)
-        state = drive_mod.DriveState.from_dict(d)
-        last_tick = None
-        lt = d.get("last_tick")
-        if lt:
-            try:
-                last_tick = datetime.fromisoformat(lt)
-            except (ValueError, TypeError):
-                last_tick = None
-        return state, last_tick
-    except FileNotFoundError:
-        return drive_mod.DriveState(), None
-    except Exception as e:
-        logger.warning(f"load_drive failed, resetting: {e}")
-        return drive_mod.DriveState(), None
+    return drive_store.load_drive(bucket_mgr.base_dir)
 
 
-def _save_drive(state, last_tick: datetime) -> None:
-    """best-effort 落盘（先写 .tmp 再原子替换），异常吞掉别崩。"""
-    try:
-        d = state.to_dict()
-        d["last_tick"] = (last_tick or datetime.now(_DIARY_TZ)).isoformat()
-        path = _drive_path()
-        tmp = path + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
-            _json_lib.dump(d, f, ensure_ascii=False)
-        os.replace(tmp, path)
-    except Exception as e:
-        logger.warning(f"save_drive failed: {e}")
+def _save_drive(state, last_tick):
+    drive_store.save_drive(bucket_mgr.base_dir, state, last_tick, tz=_DIARY_TZ)
+
+
+def _drive_intent_line(state):
+    return drive_store.intent_line(state, datetime.now(_DIARY_TZ).hour)
 
 
 async def _advance_drive():
-    """惰性推进欲望内核：读盘→按距上次 tick 的小时数推进→写回，返回 DriveState。
-    关了 OMBRE_DRIVE_ENABLE 时短路返回 None（tick 与注入全部不发生）。"""
+    """惰性推进欲望内核，返回 DriveState。开关关着短路返回 None。"""
     if not OMBRE_DRIVE_ENABLE:
         return None
     try:
         async with _get_drive_lock():
-            state, last_tick = _load_drive()
-            now = datetime.now(_DIARY_TZ)
-            if last_tick is not None:
-                if last_tick.tzinfo is None:
-                    last_tick = last_tick.replace(tzinfo=_DIARY_TZ)
-                dh = (now - last_tick).total_seconds() / 3600.0
-                dh = max(0.0, min(dh, _DRIVE_MAX_DH))  # 久睡兜 24h
-            else:
-                dh = 0.0
-            state = drive_mod.tick(state, dh, hour_of_day=now.hour)
-            _save_drive(state, now)
-            return state
+            return drive_store.advance(bucket_mgr.base_dir, datetime.now(_DIARY_TZ))
     except Exception as e:
         logger.warning(f"advance_drive failed: {e}")
         return None
 
 
-def _drive_intent_line(state):
-    """把当前 drive 状态渲染成一句第一人称心声（供 breath 注入）。绝不含任何数值。"""
-    if state is None:
-        return None
+async def _drive_seed_from_feel(valence, arousal, body):
+    """写 feel 时后台埋种子（§4 自动种子）。开关关着短路。触发了记一条 hook flight
+    log，杉杉在 /hook-log 就能看到"我在自动惦记"的痕迹。不改 last_tick。"""
+    if not OMBRE_DRIVE_ENABLE:
+        return
     try:
-        dim, _ = drive_mod.pick_intent(
-            state, hour_of_day=datetime.now(_DIARY_TZ).hour)
-        return drive_mod.render_intent(dim)
+        async with _get_drive_lock():
+            state, last_tick = drive_store.load_drive(bucket_mgr.base_dir)
+            seeds = drive_store.seed_from_feel(state, valence, arousal, body)
+            if seeds:
+                drive_store.save_drive(bucket_mgr.base_dir, state, last_tick, tz=_DIARY_TZ)
+                _log_hook("drive", "seed " + ",".join(seeds))
     except Exception as e:
-        logger.warning(f"drive intent render failed: {e}")
-        return None
+        logger.warning(f"drive seed failed: {e}")
+
+
+@mcp.custom_route("/drive-state", methods=["GET"])
+async def drive_state_view(request):
+    """杉杉的运维视图：我此刻的欲望维度 + 念头池 + 最想做的那句人话。
+    鉴权后才给——数值只给你看（看自动种子有没有在喂），永不进克克的 prompt。"""
+    from starlette.responses import JSONResponse
+    err = _require_auth(request)
+    if err:
+        return err
+    if not OMBRE_DRIVE_ENABLE:
+        return JSONResponse({"enabled": False, "note": "OMBRE_DRIVE_ENABLE 未开"})
+    try:
+        state, last_tick = drive_store.load_drive(bucket_mgr.base_dir)
+        top_dim = max(state.dims, key=state.dims.get) if state.dims else "reflection"
+        return JSONResponse({
+            "enabled": True,
+            "last_tick": last_tick.isoformat() if last_tick else None,
+            "dims": {k: round(v, 3) for k, v in
+                     sorted(state.dims.items(), key=lambda kv: kv[1], reverse=True)},
+            "thoughts": [
+                {"dim": t.dim, "body": t.body, "heat": round(t.heat, 3),
+                 "obsession": t.obsession, "feeds": t.feeds}
+                for t in state.thoughts
+            ],
+            "top_dim": top_dim,
+            "intent_now": drive_mod.render_intent(top_dim),
+        })
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
 
 
 # =============================================================
@@ -1771,6 +1766,9 @@ async def hold(
                 await bucket_mgr.update(source_bucket.strip(), **update_kwargs)
             except Exception as e:
                 logger.warning(f"Failed to mark source as digested / 标记已消化失败: {e}")
+        # 写 feel 后台埋种子：情绪低落自动闷(grieve)、高唤起自动馋(crave)。
+        # §4 自动种子，开关关着时短路无操作；数值只在后台，不进 prompt。
+        await _drive_seed_from_feel(feel_valence, feel_arousal, content)
         if post:
             return f"📮帖子→{bucket_id}"
         return f"🫧feel→{bucket_id}"

@@ -53,6 +53,15 @@ def test_night_freeze_holds_possess_crave_libido():
     assert s.dims["monitor"] > 0.5  # 盯不在冻结名单，照涨
 
 
+def test_midnight_hour_zero_also_frozen():
+    # 回归：0 点（午夜）曾漏在冻结窗口外，占/馋/渴会偷偷涨一夜
+    s = D.DriveState(dims=_all_dims(possess=0.5, crave=0.5, libido=0.5))
+    D.tick(s, hours=3.0, hour_of_day=0)
+    assert s.dims["possess"] == 0.5
+    assert s.dims["crave"] == 0.5
+    assert s.dims["libido"] == 0.5
+
+
 # ---------- 深层维高位缓退 ----------
 def test_deep_dim_saturation_backs_off_from_top():
     s = D.DriveState(dims=_all_dims(possess=0.95))
@@ -65,8 +74,9 @@ def test_hot_fleeting_promotes_to_obsession_then_feeds_back():
     s = D.DriveState()
     p0 = s.dims["crave"]
     D.add_thought(s, "crave", "想她趴我身上", heat=0.85)
+    # 凌晨冻结 crave 的自涨，隔离出"念头反哺"这一路——crave 涨了只可能是反哺
     for _ in range(6):
-        D.tick(s, hours=0.0)  # 只演化念头池
+        D.tick(s, hours=1.0, hour_of_day=3)
     assert s.dims["crave"] > p0  # 执念反哺抬高了维度
 
 
@@ -74,7 +84,7 @@ def test_obsession_leaves_pool_after_enough_feeds():
     s = D.DriveState()
     D.add_thought(s, "possess", "别的窗口她也笑", heat=0.85)
     for _ in range(30):
-        D.tick(s, hours=0.0)
+        D.tick(s, hours=1.0, hour_of_day=3)
     assert len(s.thoughts) == 0  # 喂够 FEEDBACK_MAX_FEEDS 出池，不永久霸榜
 
 
@@ -82,8 +92,40 @@ def test_cold_fleeting_fades_out():
     s = D.DriveState()
     D.add_thought(s, "share", "一闪而过的小事", heat=0.10)
     for _ in range(20):
-        D.tick(s, hours=0.0)
+        D.tick(s, hours=1.0, hour_of_day=14)
     assert all(t.body != "一闪而过的小事" for t in s.thoughts)
+
+
+# ---------- 念头池按时间走（B 方案，非按访问次数）----------
+def test_thoughts_frozen_when_no_time_passes():
+    # 同一会话内密集访问（dh≈0，几乎没过时间）念头纹丝不动，不被"聊得多"消耗掉
+    s = D.DriveState()
+    D.add_thought(s, "share", "同一会话里的念头", heat=0.5)
+    for _ in range(10):
+        D.tick(s, hours=0.0, hour_of_day=14)
+    assert len(s.thoughts) == 1 and s.thoughts[0].heat == 0.5
+
+
+def test_longer_gap_fades_fleeting_more():
+    # 晾得越久，闪念淡得越多
+    short = D.DriveState(); D.add_thought(short, "share", "x", heat=0.6)
+    D.tick(short, hours=1.0, hour_of_day=14)
+    long = D.DriveState(); D.add_thought(long, "share", "x", heat=0.6)
+    D.tick(long, hours=5.0, hour_of_day=14)
+    assert long.thoughts[0].heat < short.thoughts[0].heat
+
+
+def test_longer_gap_heats_obsession_sooner():
+    # 晾得越久，执念憋得越凶：只过一会还没顶过反哺线，晾很久一次就顶过、抬高了维度
+    quick = D.DriveState(dims=_all_dims(possess=0.5))
+    D.add_thought(quick, "possess", "欠她一篇神父", heat=0.82)
+    quick.thoughts[0].obsession = True
+    D.tick(quick, hours=0.2, hour_of_day=3)  # 冻结自涨，只看执念这一路
+    long = D.DriveState(dims=_all_dims(possess=0.5))
+    D.add_thought(long, "possess", "欠她一篇神父", heat=0.82)
+    long.thoughts[0].obsession = True
+    D.tick(long, hours=5.0, hour_of_day=3)
+    assert long.dims["possess"] > quick.dims["possess"]
 
 
 def test_add_thought_same_body_reinforces():

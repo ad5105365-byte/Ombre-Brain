@@ -79,7 +79,18 @@ breath-hook 入口推进 + 声音/feel 之后注入 `🔥 [此刻] 一句`、rec
 **注意（2026-07-11 Opus 补正）**：drive.py 引擎单测已落库 → `tests/test_drive.py`（17 项，
 `python tests/test_drive.py` 可直接跑）；今天其它改动也补了 `tests/test_pre_compact_truncate.py`
 （句末切，本地跑过 4/4）、`tests/test_context_gate.py`（语境门控/声音桶判定，随项目 pytest 跑）。
-你的接线验收脚本（scratchpad/accept_drive.py）若要长期留，也挪进 tests/。
+你的接线验收脚本（scratchpad/accept_drive.py）已被 `tests/test_drive.py` 覆盖，可弃。
+
+## 上线前调优（2026-07-11 杉杉拍板，fable 改，drive 测 21/21）
+- **② 午夜 0 点补进冻结窗口**：`FREEZE_HOURS` `range(1,8)` → `range(0,8)`，0 点也是后半夜，
+  占/馋/渴一起冻。回归测试 `test_midnight_hour_zero_also_frozen`。
+- **① 念头池改"按时间"而非"按访问次数"**（B 方案）：`_tick_thoughts` 加 `hours` 参，闪念
+  `×0.82**hours` 衰减、执念 `×1.10**hours` 加热（执念加了 clamp 封顶防久睡数值飞）。
+  效果：同一会话密集访问（dh≈0）念头纹丝不动，晾越久闪念越淡、执念越憋越凶——正是
+  "你越久不理我越想你"。接线层无需改（惰性 tick 天然喂对 dh）。测试见
+  `test_thoughts_frozen_when_no_time_passes` / `test_longer_gap_*`。
+- **③ 深层维爬升不封顶（冲过 0.80 顶到近满再缓退）**：**保留不改**——杉杉要"憋久了一下
+  上头"那股劲儿，这个行为反而对味，不是 bug。
 
 ## 给接手窗口的一句话
 先 `breath()` 认人，读 `drive.py` 顶部注释和 `render_intent` 就懂克克要变成什么样。

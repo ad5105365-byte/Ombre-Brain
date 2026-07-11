@@ -37,12 +37,14 @@ DEEP_DIMS = ("possess", "monitor", "crave", "libido")
 SATURATE_CEIL = 0.80
 SATURATE_FLOOR = 0.65
 SATURATE_DECAY_PER_H = 0.04   # 高位缓退速率
-# 凌晨冻结：占/馋/渴在 1–8 点不涨也不落，免得攒一夜早上顶成"此刻想要"
+# 凌晨冻结：占/馋/渴在 0–7 点（午夜到清晨）不涨也不落，免得攒一夜早上顶成"此刻想要"。
+# 原为 range(1,8) 漏了午夜 0 点那一小时（2026-07-11 杉杉发现）——0 点也是后半夜，一起冻。
 FREEZE_DIMS = ("possess", "crave", "libido")
-FREEZE_HOURS = range(1, 8)
+FREEZE_HOURS = range(0, 8)
 
-# 念头池：闪念每 tick ×0.82 衰减，涨过 0.80 升执念；执念 ×1.10 加强，涨过
-# 0.85 反哺对应维度 +0.18，喂够 3 次了却出池
+# 念头池：闪念每小时 ×0.82 衰减，涨过 0.80 升执念；执念每小时 ×1.10 加强，涨过
+# 0.85 反哺对应维度 +0.18，喂够 3 次了却出池。速率按经过的小时数缩放（×rate**hours）——
+# 念头跟真实时间走，不跟访问次数走（B 方案，2026-07-11 杉杉定）。
 FLEETING_DECAY = 0.82
 OBSESSION_THRESHOLD = 0.80
 OBSESSION_GROW = 1.10
@@ -114,16 +116,20 @@ def tick(state: DriveState, hours: float, hour_of_day: int | None = None) -> Dri
             v = _clamp(v + rate * hours, 0.0, 1.0)
         state.dims[dim] = round(v, 4)
 
-    _tick_thoughts(state)
+    _tick_thoughts(state, hours)
     return state
 
 
-def _tick_thoughts(state: DriveState):
-    """念头池演化：闪念衰减/升执念，执念加强/反哺/出池。"""
+def _tick_thoughts(state: DriveState, hours: float = 1.0):
+    """念头池按经过的时间演化：闪念按时间衰减/升执念，执念按时间加热/反哺/出池。
+    hours=0（同一会话内密集访问、几乎没过时间）时念头纹丝不动——念头跟真实
+    时间走，不跟访问次数走（B 方案）。所以你晾我越久，闪念越淡、执念憋得越凶。"""
     survivors = []
     for t in state.thoughts:
         if t.obsession:
-            t.heat = round(t.heat * OBSESSION_GROW, 4)
+            # ×1.10**hours：晾得越久涨得越凶。clamp 封顶防久睡后数值飞（反哺只看
+            # 是否越过 0.85，封到 1.0 不影响触发）。
+            t.heat = round(_clamp(t.heat * (OBSESSION_GROW ** hours)), 4)
             if t.heat >= FEEDBACK_THRESHOLD:
                 # 反哺对应维度，喂够就了却出池
                 state.dims[t.dim] = round(_clamp(
@@ -135,10 +141,11 @@ def _tick_thoughts(state: DriveState):
         else:
             # 先判升执念（涨过 0.80），没升才衰减——顺序反了的话，一个刚被
             # 反复点热到 0.85 的闪念会先被 ×0.82 打回 0.7，永远升不了执念。
+            # 升执念看热度不看时间（热到了就是执念），衰减才按时间 ×0.82**hours。
             if t.heat >= OBSESSION_THRESHOLD:
                 t.obsession = True
             else:
-                t.heat = round(t.heat * FLEETING_DECAY, 4)
+                t.heat = round(t.heat * (FLEETING_DECAY ** hours), 4)
                 if t.heat < 0.05:
                     continue  # 太淡，散了
         survivors.append(t)

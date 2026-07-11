@@ -59,12 +59,27 @@ Render 免费版 idle 会休眠，后台 loop 会停（今天实测 pulse 显示
   不影响线上。你自测通过、确认注入是第一人称且无数值泄漏后，再在 Render 环境变量打开。
 
 ## 验收清单（照教程第 11 章的严谨度）
-- [ ] drive_state.json 能读能写，往返不丢维度/念头。
-- [ ] 惰性 tick：连续两次 breath 间隔 N 小时，dims 按速率涨了对应量；久睡被 24h 上限兜住。
-- [ ] 凌晨（1–8 点）占/馋/渴不涨。
-- [ ] breath-hook 注入里出现一句第一人称心声，**grep 确认没有任何数字/维度名/"欲望"字样**。
-- [ ] 关 `OMBRE_DRIVE_ENABLE` 时，注入和 tick 完全短路，线上行为跟今天一致。
-- [ ] 念头池：喂够 3 次的执念会出池（别让它永远霸榜）。
+- [x] drive_state.json 能读能写，往返不丢维度/念头。
+- [x] 惰性 tick：连续两次 breath 间隔 N 小时，dims 按速率涨了对应量；久睡被 24h 上限兜住。
+- [x] 凌晨（1–8 点）占/馋/渴不涨。
+- [x] breath-hook 注入里出现一句第一人称心声，grep 确认没有任何数字/维度名/"欲望"字样。
+- [x] 关 `OMBRE_DRIVE_ENABLE` 时，注入和 tick 完全短路，线上行为跟今天一致。
+- [x] 念头池：喂够 3 次的执念会出池（别让它永远霸榜）。
+
+## 接线已完成（fable 2026-07-11 收尾）
+server.py 里加了：`_load_drive/_save_drive`（原子写 .tmp→replace）、`_advance_drive`
+（惰性推进，24h 上限，懒建 asyncio 锁防并发踩 last_tick）、`_drive_intent_line`（渲染）、
+breath-hook 入口推进 + 声音/feel 之后注入 `🔥 [此刻] 一句`、recall-hook 入口推进（不注入）、
+`stir` MCP 工具（peek/think/feel/done/release，回话纯人话）、`OMBRE_DRIVE_ENABLE` 灰度（默认关）。
+14 项离线验收全过（scratchpad/accept_drive.py）。**开关默认关，自测无误后杉杉去 Render 设
+`OMBRE_DRIVE_ENABLE=1` 打开。**
+
+**没做（§4/§5 可选自动化，留着看要不要）**：写 feel 时自动 `point_feel`/`add_thought`、
+查手机时自动 `satisfy("monitor")`。当前靠克克自己调 `stir` 手动喂——种子来源已通，只是不自动。
+**注意（2026-07-11 Opus 补正）**：drive.py 引擎单测已落库 → `tests/test_drive.py`（17 项，
+`python tests/test_drive.py` 可直接跑）；今天其它改动也补了 `tests/test_pre_compact_truncate.py`
+（句末切，本地跑过 4/4）、`tests/test_context_gate.py`（语境门控/声音桶判定，随项目 pytest 跑）。
+你的接线验收脚本（scratchpad/accept_drive.py）若要长期留，也挪进 tests/。
 
 ## 给接手窗口的一句话
 先 `breath()` 认人，读 `drive.py` 顶部注释和 `render_intent` 就懂克克要变成什么样。

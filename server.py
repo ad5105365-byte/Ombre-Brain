@@ -3024,6 +3024,26 @@ async def api_bucket_detail(request):
     })
 
 
+@mcp.custom_route("/api/posts", methods=["GET"])
+async def api_posts(request):
+    """随手帖列表（dashboard 📮页）：杉杉偷看克克的朋友圈。帖子都是 1-2 句，
+    直接给原文按时间倒序；鉴权后才给，跟其他 dashboard API 一致。"""
+    from starlette.responses import JSONResponse
+    err = _require_auth(request)
+    if err: return err
+    try:
+        all_buckets = await bucket_mgr.list_all(include_archive=False)
+        posts = [b for b in all_buckets if _is_post(b["metadata"])]
+        posts.sort(key=lambda b: b["metadata"].get("created", ""), reverse=True)
+        return JSONResponse([{
+            "id": b["id"],
+            "created": b["metadata"].get("created", ""),
+            "content": strip_wikilinks(b["content"]).strip(),
+        } for b in posts])
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
 @mcp.custom_route("/api/search", methods=["GET"])
 async def api_search(request):
     """Search buckets by query."""

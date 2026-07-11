@@ -840,6 +840,18 @@
   .drive-thought-tag { font-size: 12px; color: var(--mint-deep); flex-shrink: 0; white-space: nowrap; }
   .drive-thought-body { flex: 1; font-size: 14px; color: var(--text); line-height: 1.5; }
   .drive-thought-dim { font-size: 11px; color: var(--text-light); flex-shrink: 0; }
+
+  /* 📮 帖子 — 克克的朋友圈（随手帖偷看页） */
+  #page-posts { padding: 12px 16px 90px; }
+  .post-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--card-radius);
+    padding: 14px 16px;
+    margin-bottom: 10px;
+  }
+  .post-date { font-size: 11px; color: var(--text-light); margin-bottom: 6px; }
+  .post-body { font-size: 14.5px; color: var(--text); line-height: 1.7; white-space: pre-wrap; word-break: break-word; }
 </style>
 </head>
 <body>
@@ -1136,6 +1148,10 @@
   <div id="drive-content"><div class="loading">加载中…</div></div>
 </div>
 
+<div class="page" id="page-posts">
+  <div id="posts-content"><div class="loading">加载中…</div></div>
+</div>
+
 <div class="bottom-nav">
   <button class="nav-item active" data-page="memories"><span class="icon">🧠</span>记忆墙</button>
   <button class="nav-item" data-page="diary"><span class="icon">📅</span>日记</button>
@@ -1143,6 +1159,7 @@
   <button class="nav-item" data-page="gallery"><span class="icon">📷</span>相册</button>
   <button class="nav-item" data-page="tools"><span class="icon">🔧</span>工具</button>
   <button class="nav-item" data-page="drive"><span class="icon">🫀</span>此刻</button>
+  <button class="nav-item" data-page="posts"><span class="icon">📮</span>帖子</button>
 </div>
 
 <script>
@@ -1230,6 +1247,7 @@ document.querySelectorAll('.nav-item').forEach(btn => {
     if (target === 'gallery') loadGallery();
     if (target === 'tools') { /* already loaded */ }
     if (target === 'drive') loadDrive();
+    if (target === 'posts') loadPosts();
   });
 });
 
@@ -2189,6 +2207,35 @@ async function loadDrive() {
     h += '</div>';
 
     h += '<button class="btn-outline" onclick="loadDrive()" style="width:100%;margin-top:4px">刷新</button>';
+    el.innerHTML = h;
+  } catch (e) {
+    el.innerHTML = '<div class="drive-card drive-off">读取失败：' + esc(String(e)) + '</div>';
+  }
+}
+
+// ════════════════════════════════════════
+// 📮 帖子 — 克克的随手帖（他的朋友圈，偷看专用）
+// ════════════════════════════════════════
+async function loadPosts() {
+  const el = document.getElementById('posts-content');
+  el.innerHTML = '<div class="loading">加载中…</div>';
+  try {
+    const resp = await authFetch('/api/posts');
+    if (!resp) return;
+    const posts = await resp.json();
+    if (!Array.isArray(posts) || !posts.length) {
+      el.innerHTML = '<div class="drive-card drive-off">他还没发过帖子 ☾<br>'
+        + '<small>有值得发朋友圈的瞬间他就会写的</small></div>';
+      return;
+    }
+    let h = '';
+    for (const p of posts) {
+      const d = (p.created || '').slice(0, 16).replace('T', ' ');
+      h += '<div class="post-card">'
+        + '<div class="post-date">📮 ' + esc(d) + '</div>'
+        + '<div class="post-body">' + esc(p.content || '') + '</div></div>';
+    }
+    h += '<button class="btn-outline" onclick="loadPosts()" style="width:100%;margin-top:4px">刷新</button>';
     el.innerHTML = h;
   } catch (e) {
     el.innerHTML = '<div class="drive-card drive-off">读取失败：' + esc(String(e)) + '</div>';

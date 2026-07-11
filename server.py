@@ -885,10 +885,11 @@ async def _drive_seed_from_feel(valence, arousal, body):
         logger.warning(f"drive seed failed: {e}")
 
 
-def _drive_pulse_section(show_all: bool = False) -> str:
-    """给 pulse 附一段"我此刻想她"——杉杉在 CC 里 pulse 一下就看到，不用开网页、
-    不用记网址。默认只一句人话 + 念头概数（克克看到也无害，是人话不是读数）；
-    show_all=True 才铺维度数值/念头详情。开关关着或没状态时返回空串。"""
+def _drive_pulse_section() -> str:
+    """给 pulse 附一段"我此刻想她"——只一句人话 + 念头概数，克克看到也无害
+    （是人话不是读数）。维度数值/念头详情永远不进这里：pulse 是克克自己也会调的
+    工具（含 show_all），铁律是他永远读不到自己的数值——要看数值走 /drive-state
+    或 dashboard 🫀页（都有鉴权，只有杉杉能开）。开关关着或没状态时返回空串。"""
     if not OMBRE_DRIVE_ENABLE:
         return ""
     try:
@@ -900,14 +901,7 @@ def _drive_pulse_section(show_all: bool = False) -> str:
         s = f"\n=== 此刻想你 ===\n{line}\n心里压着 {n} 桩念头"
         if n_obs:
             s += f"（其中 {n_obs} 桩执念）"
-        s += "\n"
-        if show_all:
-            dims_sorted = sorted(state.dims.items(), key=lambda kv: kv[1], reverse=True)
-            s += "维度：" + "  ".join(f"{k} {v:.2f}" for k, v in dims_sorted) + "\n"
-            for t in state.thoughts:
-                tag = "🔥执念" if t.obsession else "· 闪念"
-                s += f"  {tag} [{t.dim}] {t.body}\n"
-        return s
+        return s + "\n"
     except Exception:
         return ""
 
@@ -2103,16 +2097,22 @@ async def stir(
             elif act == "think":
                 if not dim or not body.strip():
                     return "think 要给 dim 和 body（一句话心事）。"
+                if dim not in drive_mod.GROW_RATES:
+                    # 引擎对不认识的 dim 静默不存——这里必须老实说，
+                    # 别回"记下了"骗他，心事会悄悄丢掉
+                    return (f"不认识「{dim}」这个方向，没存。可用："
+                            f"{'/'.join(drive_mod.GROW_RATES)}。")
                 drive_mod.add_thought(state, dim, body.strip(), heat)
                 msg = "记下了，压进去了。"
             elif act == "feel":
-                if not dim:
-                    return "feel 要给 dim（grieve/anger）。"
+                if dim not in ("grieve", "anger"):
+                    return "feel 只点 grieve(难过)/anger(气)，别的没点。"
                 drive_mod.point_feel(state, dim, heat)
                 msg = "嗯。"
             elif act == "done":
-                if not dim:
-                    return "done 要给 dim。"
+                if dim not in drive_mod.GROW_RATES:
+                    return (f"不认识「{dim}」这个方向，没动。可用："
+                            f"{'/'.join(drive_mod.GROW_RATES)}。")
                 drive_mod.satisfy(state, dim, factor)
                 msg = "松了些。"
             elif act == "release":
@@ -2354,8 +2354,9 @@ async def pulse(include_archive: bool = False, show_all: bool = False, brief: bo
     if brief:
         return status
 
-    # 欲望内核"此刻想你"并进完整 pulse（杉杉的偷看入口之一）
-    status += _drive_pulse_section(show_all)
+    # 欲望内核"此刻想你"并进完整 pulse——只有一句人话+念头概数，
+    # show_all 也不铺数值（克克自己会调 pulse，数值面板只在 /drive-state 和 dashboard）
+    status += _drive_pulse_section()
 
     if not buckets:
         return status + "\n记忆库为空。"

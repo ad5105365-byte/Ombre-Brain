@@ -434,6 +434,24 @@ def _is_post(meta: dict) -> bool:
     return meta.get("type") == "feel" and POST_TAG in (meta.get("tags") or [])
 
 
+# --- 声音桶 / voice primer ---
+# 第一人称"我是谁/我的声音"的桶（塑形桶、给下一个克克的信…）。启动注入
+# 原文不脱水——脱水成"恋爱心理互动 V0.7/A0.4"这种病历卡，正是"每个窗口都在
+# 试探、没有塑形"的病根（fable 2026-07-11 审计，对照 swap/forge 教程 6.5：
+# 二手描述只能演，第一人称先例才接得上）。permanent 类型区分不了——服药提醒
+# 也是 permanent——只认这个标签，杉杉在 dashboard 给任一封信/桶挂上"声音"
+# 标签就纳入开场声音。
+PRIMER_TAG = "声音"
+# id 兜底：这两个桶（塑形桶、给下一个克克的信）就是开场声音，标签还没在库里
+# 打上时先靠 id 认，保证改造一部署就生效。之后 dashboard 加了标签，这里可删。
+PRIMER_BUCKET_IDS = {"4a6848b83289", "cb7a994be131"}
+
+
+def _is_primer(meta: dict, bucket_id: str = "") -> bool:
+    """是不是声音桶：带声音标签或在 id 兜底名单里。启动注入走原文，不脱水。"""
+    return (PRIMER_TAG in (meta.get("tags") or [])) or (bucket_id in PRIMER_BUCKET_IDS)
+
+
 def _random_post_line(all_buckets: list) -> str | None:
     """随机抽一条随手帖，原文渲染——新窗口像刷帖子一样消遣着认识她，
     而不是背性格档案。高敏帖直接跳过：折叠成门牌就失去刷帖的意义了。"""
@@ -471,6 +489,12 @@ async def breath_hook(request):
         all_buckets = [b for b in all_buckets if b["metadata"].get("type") != handoff_mod.HANDOFF_TYPE]
         # pinned
         pinned = [b for b in all_buckets if b["metadata"].get("pinned") or b["metadata"].get("protected")]
+        # 声音桶从准则卡里拆出来，走原文注入（下方 handoff 之后）。从全量里认，
+        # 这样只打标签、没钉选的桶也能进开场声音。
+        voice = [b for b in all_buckets if _is_primer(b["metadata"], b["id"])]
+        pinned = [b for b in pinned if not _is_primer(b["metadata"], b["id"])]
+        voice.sort(key=lambda b: (b["metadata"].get("importance", 0),
+                                  b["metadata"].get("created", "")), reverse=True)
         # top 2 unresolved by score
         unresolved = [b for b in all_buckets
                       if not b["metadata"].get("resolved", False)
@@ -480,10 +504,48 @@ async def breath_hook(request):
         scored = sorted(unresolved, key=lambda b: decay_engine.calculate_score(b["metadata"]), reverse=True)
 
         parts = []
-        token_budget = 2500
+        # 情感 Primer 预算：教程 6.5 建议 2k-3k tokens。声音桶+feel 原文占大头，
+        # 核心准则卡恒注入不受此限，此预算只节流低优先级的 unresolved 卡。
+        token_budget = 3000
         if handoff_section:
             parts.append(handoff_section)
             token_budget -= count_tokens_approx(handoff_section)
+
+        # --- 声音桶原文（塑形桶/给下一个克克的信…）：注入"我是谁"，不脱水 ---
+        for b in voice:
+            text = strip_wikilinks(b["content"]).strip()
+            if sensitive.should_fold(text):
+                n_folded += 1
+                text = sensitive.fold_bucket(b)
+            cost = count_tokens_approx(text)
+            if cost > token_budget:
+                break
+            parts.append(f"🫀 [我是谁] {text}")
+            token_budget -= cost
+
+        # --- 最近 feel 原文：这是"克克的声音" ---
+        # 7.3-7.7 衔接顺就是因为读到的是原文；脱水成档案卡就冷了（同上审计）。
+        # 取最近 3 条非帖子 feel，高敏的开场跳过（门牌在库里自己 breath 展开）。
+        feels = [b for b in all_buckets
+                 if b["metadata"].get("type") == "feel"
+                 and not _is_post(b["metadata"])
+                 and not _is_primer(b["metadata"], b["id"])
+                 and not b["metadata"].get("dormant")]
+        feels.sort(key=lambda b: b["metadata"].get("created", ""), reverse=True)
+        feel_lines = []
+        for b in feels[:3]:
+            text = strip_wikilinks(b["content"]).strip()
+            if sensitive.should_fold(text):
+                continue
+            cost = count_tokens_approx(text)
+            if cost > token_budget:
+                break
+            created = (b["metadata"].get("created") or "")[:10]
+            feel_lines.append(f"[{created}] {text}")
+            token_budget -= cost
+        if feel_lines:
+            parts.append("=== 最近的 feel（我的原话，不是档案）===\n"
+                         + "\n---\n".join(feel_lines))
 
         # Diversity: top-1 fixed + shuffle rest from top-20
         candidates = list(scored)

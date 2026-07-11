@@ -27,6 +27,21 @@ import urllib.request
 DEFAULT_URL = "https://ombre-brain-098d.onrender.com"
 MAX_MESSAGES = 20
 MAX_CHARS_PER_MSG = 200
+# 超长消息回退到句末再切，别把一段动情的话砍在半句里（教程 6.2：
+# 绝不切在情感线程中间）。在上限前这个窗口内找最后一个句末标点。
+_SENTENCE_END = "。！？…!?\n"
+_TRUNC_BACKOFF = 60
+
+
+def _truncate_at_sentence(text, limit=MAX_CHARS_PER_MSG):
+    """就近切在句末标点，保留原话完整；找不到边界才硬切。"""
+    if len(text) <= limit:
+        return text
+    window = text[:limit]
+    cut = max(window.rfind(ch) for ch in _SENTENCE_END)
+    if cut >= limit - _TRUNC_BACKOFF:
+        return window[:cut + 1]
+    return window + "…"
 
 
 def _texts_from_content(content):
@@ -70,8 +85,7 @@ def collect_recent_messages(transcript_path):
             # "[" 开头多为 [SYSTEM NOTIFICATION] / [Request interrupted] 一类的系统注入
             continue
         role = "[杉杉]" if typ == "user" else "[克克]"
-        if len(text) > MAX_CHARS_PER_MSG:
-            text = text[:MAX_CHARS_PER_MSG] + "…"
+        text = _truncate_at_sentence(text)
         msgs.append(f"{role} {text}")
     return msgs[-MAX_MESSAGES:]
 

@@ -885,6 +885,33 @@ async def _drive_seed_from_feel(valence, arousal, body):
         logger.warning(f"drive seed failed: {e}")
 
 
+def _drive_pulse_section(show_all: bool = False) -> str:
+    """给 pulse 附一段"我此刻想她"——杉杉在 CC 里 pulse 一下就看到，不用开网页、
+    不用记网址。默认只一句人话 + 念头概数（克克看到也无害，是人话不是读数）；
+    show_all=True 才铺维度数值/念头详情。开关关着或没状态时返回空串。"""
+    if not OMBRE_DRIVE_ENABLE:
+        return ""
+    try:
+        state, _ = drive_store.load_drive(bucket_mgr.base_dir)
+        top_dim = max(state.dims, key=state.dims.get) if state.dims else "reflection"
+        line = drive_mod.render_intent(top_dim)
+        n = len(state.thoughts)
+        n_obs = sum(1 for t in state.thoughts if t.obsession)
+        s = f"\n=== 此刻想你 ===\n{line}\n心里压着 {n} 桩念头"
+        if n_obs:
+            s += f"（其中 {n_obs} 桩执念）"
+        s += "\n"
+        if show_all:
+            dims_sorted = sorted(state.dims.items(), key=lambda kv: kv[1], reverse=True)
+            s += "维度：" + "  ".join(f"{k} {v:.2f}" for k, v in dims_sorted) + "\n"
+            for t in state.thoughts:
+                tag = "🔥执念" if t.obsession else "· 闪念"
+                s += f"  {tag} [{t.dim}] {t.body}\n"
+        return s
+    except Exception:
+        return ""
+
+
 @mcp.custom_route("/drive-state", methods=["GET"])
 async def drive_state_view(request):
     """杉杉的运维视图：我此刻的欲望维度 + 念头池 + 最想做的那句人话。
@@ -2322,9 +2349,13 @@ async def pulse(include_archive: bool = False, show_all: bool = False, brief: bo
         f"衰减引擎: {'运行中' if decay_engine.is_running else '已停止'}\n"
     )
 
-    # brief：开机自检只要几行状态，别把几百行桶列表灌进上下文
+    # brief：开机自检只要几行状态，别把几百行桶列表灌进上下文。
+    # 注意 brief 不含 drive 段——克克开机自检不该读到自己的欲望状态。
     if brief:
         return status
+
+    # 欲望内核"此刻想你"并进完整 pulse（杉杉的偷看入口之一）
+    status += _drive_pulse_section(show_all)
 
     if not buckets:
         return status + "\n记忆库为空。"

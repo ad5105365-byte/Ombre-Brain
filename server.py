@@ -785,6 +785,33 @@ async def hook_log(request):
 
 
 # =============================================================
+# 语境门控（借鉴 Non 记忆系统 §7 breath 语境门控）
+# 冷场（非亲密话题）时，高唤起(hot)记忆只有"她真用过相关词"的字面强信号才浮，
+# 纯语义邻近的不浮——避免她聊正事时被亲密记忆突兀勾上来，tone 不搭。
+# =============================================================
+HOT_AROUSAL = 0.7
+_INTIMATE_CUES = (
+    "老公", "囡囡", "想你", "抱", "亲", "摸", "骚", "宝贝", "撩",
+    "小狗", "亲亲", "抱抱", "在一起", "身体", "喜欢你", "爱你", "上床",
+)
+
+
+def _is_intimate_context(msg: str) -> bool:
+    """当前消息是否带亲密/情欲语境信号。含高敏词或亲密提示词即算。"""
+    if sensitive.is_sensitive(msg):
+        return True
+    return any(cue in msg for cue in _INTIMATE_CUES)
+
+
+def _is_hot(meta: dict) -> bool:
+    """高唤起记忆（对应 Non 的 fire/ache/jolt/yearn）：arousal 越界即算 hot。"""
+    try:
+        return float(meta.get("arousal", 0)) >= HOT_AROUSAL
+    except (TypeError, ValueError):
+        return False
+
+
+# =============================================================
 # /recall-hook endpoint: Real-time memory recall per user message
 # 每轮对话实时记忆召回（UserPromptSubmit hook 调用）
 # =============================================================
@@ -855,6 +882,14 @@ async def recall_hook(request):
                 matches = date_named + [b for b in matches if b["id"] not in named_ids]
             except Exception:
                 pass
+
+        # 语境门控：冷场（非亲密话题）时，hot 记忆只保留字面强匹配，滤掉纯语义
+        # 邻近的——她真用过相关词才浮，避免聊正事时被亲密记忆打断 tone（Non §7）。
+        if not _is_intimate_context(user_msg):
+            matches = [
+                b for b in matches
+                if not (_is_hot(b["metadata"]) and b.get("vector_match"))
+            ]
 
         # Take top 3
         matches = matches[:3]

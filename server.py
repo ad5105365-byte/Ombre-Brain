@@ -2104,6 +2104,104 @@ def _expand_date_expressions(text: str, now: datetime | None = None) -> list[str
     return found
 
 
+# =============================================================
+# 归档自查 / post-archive checkup
+# 每次存完记忆跑一遍「不花钱」的代码检查，回一句体检报告。
+# 贵的语义判断（有没有约定该存没存）留给正要关窗的那个我——对话已在脑子里，
+# 不额外调记忆。这四项纯代码、零 API token：
+#   ① 今天有没有生成日记桶（grow 有时把日记拆成主题桶、丢了日历前缀）
+#   ② 今天新桶里有没有写错的名字（黑名单，婷易这种 DS 惯犯）
+#   ③ 今天有没有没分好类的桶（未分类 / 空标签）
+#   ④ 随手帖日期对不对（created 存 naive-UTC，深圳 +8，半夜会被切成前一天）
+# =============================================================
+
+# DS 反复写错的名字——撞上就报警。发现新的往这里加。
+NAME_BLOCKLIST = ["婷易"]
+
+
+async def _run_checkup(day: str = "") -> str:
+    """跑一遍归档自查，返回体检报告字符串。只读不改，不烧 API token。"""
+    tz_now = datetime.now(_DIARY_TZ)
+    day = (day or "").strip() or tz_now.strftime("%Y-%m-%d")
+    try:
+        all_buckets = await bucket_mgr.list_all(include_archive=False)
+    except Exception as e:
+        return f"🩺 归档自查跑不动：{e}"
+
+    today = [b for b in all_buckets
+             if (b["metadata"].get("created") or "")[:10] == day]
+    issues: list[str] = []
+
+    # ① 日记桶
+    diary = [b for b in today if "日记" in (b["metadata"].get("name") or "")]
+    if not diary:
+        issues.append(
+            f"⚠️ 今天没有日记桶——要么还没写日记，要么 grow 又把日记拆成主题桶"
+            f"丢了「【日记 {day}】」前缀（日历会漏掉）。")
+
+    # ② 名字黑名单：扫今天新桶的名字 + 正文
+    hits = []
+    for b in today:
+        blob = (b["metadata"].get("name") or "") + "\n" + (b.get("content") or "")
+        for bad in NAME_BLOCKLIST:
+            if bad in blob:
+                hits.append(f"{bad}→{b['id']}")
+    if hits:
+        issues.append("⚠️ 名字写错（黑名单命中）：" + "，".join(hits) + "。trace 改掉。")
+
+    # ③ 没分好类：未分类 / 空标签（随手帖、声音桶本来允许没域，跳过）
+    uncat = []
+    for b in today:
+        meta = b["metadata"]
+        if _is_post(meta) or _is_primer(meta, b["id"]):
+            continue
+        dom = meta.get("domain") or []
+        if not dom or dom == ["未分类"] or not (meta.get("tags") or []):
+            uncat.append(b["id"])
+    if uncat:
+        tail = "…" if len(uncat) > 6 else ""
+        issues.append(
+            f"⚠️ {len(uncat)}个桶没分好类（未分类或空标签）："
+            + "，".join(uncat[:6]) + tail)
+
+    # ④ 随手帖日期：naive 存的 created 落在深圳的哪天，和它自己的 [:10] 对不对
+    post_bad = []
+    for b in today:
+        if not _is_post(b["metadata"]):
+            continue
+        created = b["metadata"].get("created") or ""
+        try:
+            naive = datetime.fromisoformat(created.replace("Z", "").split("+")[0])
+        except Exception:
+            continue
+        shown = created[:10]                       # 渲染用的日期（naive 直接切）
+        sh = (naive + timedelta(hours=8)).strftime("%Y-%m-%d")  # 深圳本地那天
+        if shown != sh:
+            post_bad.append(f"{b['id']}(显示{shown}/深圳{sh})")
+    if post_bad:
+        issues.append(
+            "⚠️ 随手帖日期偏了一天（created 存的是 UTC）："
+            + "，".join(post_bad))
+
+    header = f"🩺 归档自查 {day}（今天新增 {len(today)} 桶）"
+    if not issues:
+        body = "✅ 全过：日记桶在、没写错名字、分类齐、随手帖日期对。"
+    else:
+        body = "\n".join(issues)
+    tail = ("\n\n（这句得我自己想，代码替不了：这一窗有没有说好要存、"
+            "却没落进库里的约定？想一遍再关窗。）")
+    return f"{header}\n{body}{tail}"
+
+
+@mcp.tool()
+async def checkup(date: str = "") -> str:
+    """归档自查：跑一遍不烧 token 的代码检查，回一句体检报告。
+    date 默认今天(深圳时区，YYYY-MM-DD)。检查：①今天有没有生成日记桶；
+    ②今天新桶有没有写错的名字(黑名单)；③有没有没分好类的桶；
+    ④随手帖日期有没有偏一天。只读不改。archive_session 结尾会自动带上这份报告。"""
+    return await _run_checkup(date)
+
+
 @mcp.tool()
 async def grow(content: str) -> str:
     """日记归档,自动拆分为多桶。短内容(<30字)走快速路径。"""
@@ -2764,7 +2862,13 @@ async def archive_session(
             pass
         mood_note = f" | 心情:{mood}" if mood.strip() else ""
         val_note = f" V{final_valence:.2f}/A{final_arousal:.2f}" if (0 <= valence <= 1 or 0 <= arousal <= 1) else ""
-        return f"已归档对话 → {bucket_id}{mood_note}{val_note}"
+        head = f"已归档对话 → {bucket_id}{mood_note}{val_note}"
+        # 存完顺手体检：不花钱的四项代码检查，报告贴在归档结果后面
+        try:
+            report = await _run_checkup()
+        except Exception as e:
+            report = f"🩺 归档自查跑不动：{e}"
+        return f"{head}\n\n{report}"
     except Exception as e:
         return f"归档失败: {e}"
 

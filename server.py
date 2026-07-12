@@ -721,6 +721,27 @@ def _phone_auth_error(request):
     return None
 
 
+def _phone_ledger_path():
+    return os.path.join(bucket_mgr.base_dir, "phone_activity.log")
+
+
+def _phone_ledger_append(app_name, opened_at, location):
+    """流水台账——纯文本，放 buckets 目录搭 cloud_sync 的车。
+    sqlite 库在 Render 重新部署时会被清空（免费层无持久盘），
+    台账跟着记忆文件一起过 Postgres，部署后由 _phone_db 找回来。"""
+    try:
+        path = _phone_ledger_path()
+        lines = []
+        if os.path.exists(path):
+            with open(path, encoding="utf-8") as f:
+                lines = f.read().splitlines()
+        lines.append(f"{opened_at}|{app_name}|{location or ''}")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("\n".join(lines[-PHONE_ACTIVITY_KEEP:]) + "\n")
+    except Exception as e:
+        logger.warning(f"手机流水台账写入失败: {e}")
+
+
 def _phone_db():
     import sqlite3
     conn = sqlite3.connect(os.path.join(bucket_mgr.base_dir, "phone_activity.db"))
@@ -737,6 +758,22 @@ def _phone_db():
         conn.execute("ALTER TABLE phone_activity ADD COLUMN location TEXT")
     except Exception:
         pass
+    # 部署后 sqlite 是空库：从云同步还原的台账把流水找回来
+    try:
+        if conn.execute("SELECT COUNT(*) FROM phone_activity").fetchone()[0] == 0 \
+                and os.path.exists(_phone_ledger_path()):
+            with open(_phone_ledger_path(), encoding="utf-8") as f:
+                for line in f:
+                    parts = line.rstrip("\n").split("|", 2)
+                    if len(parts) >= 2 and parts[0] and parts[1]:
+                        conn.execute(
+                            "INSERT INTO phone_activity (app_name, opened_at, location) "
+                            "VALUES (?, ?, ?)",
+                            (parts[1], parts[0],
+                             parts[2] if len(parts) > 2 and parts[2] else None))
+            conn.commit()
+    except Exception as e:
+        logger.warning(f"手机流水台账还原失败: {e}")
     return conn
 
 
@@ -764,6 +801,7 @@ async def phone_report(request):
     """)
     conn.commit()
     conn.close()
+    _phone_ledger_append(app_name or "unknown", now, location)
     return JSONResponse({"ok": True})
 
 

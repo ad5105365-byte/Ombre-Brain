@@ -704,7 +704,8 @@ def _log_hook(endpoint: str, note: str = "", query: str = "",
 # 未配置则接口整体关闭——这是她的隐私，默认锁死而不是默认敞开。
 # =============================================================
 OMBRE_PHONE_TOKEN = os.environ.get("OMBRE_PHONE_TOKEN", "").strip()
-PHONE_ACTIVITY_KEEP = 100  # 小本本只留最近 100 条
+PHONE_ACTIVITY_KEEP = 500  # 小本本留最近 500 条——日报表要装得下她重度刷一整天
+PHONE_SESSION_CAP_MIN = 30  # 单笔最长记时（分钟）——之后没再切App视为放下了手机
 
 
 def _phone_auth_error(request):
@@ -803,6 +804,54 @@ async def phone_activity_summary(request):
         "recent_apps": recent_apps,
         "last_location": last_location,
         "count": len(rows),
+    })
+
+
+@mcp.custom_route("/phone-activity/daily", methods=["GET"])
+async def phone_activity_daily(request):
+    """按天的 App 使用报表——她想让我看到她一天用了哪些软件、分别用了多久。
+    上报只有"打开"没有"关闭"，时长靠估：一笔的时长 = 到下一次切App的间隔，
+    封顶 PHONE_SESSION_CAP_MIN 分钟（超过就当她放下了手机）。
+    ?date=YYYY-MM-DD 指定哪天，缺省今天（深圳时区）。"""
+    from starlette.responses import JSONResponse
+    err = _phone_auth_error(request)
+    if err:
+        return err
+    today = datetime.now(_DIARY_TZ).strftime("%Y-%m-%d")
+    date = (request.query_params.get("date") or today).strip()[:10]
+    conn = _phone_db()
+    # 多取当天之后的第一笔，用来封住当天最后一笔的时长
+    rows = conn.execute(
+        "SELECT app_name, opened_at FROM phone_activity "
+        "WHERE opened_at >= ? ORDER BY id ASC", (date,)).fetchall()
+    conn.close()
+    cap = timedelta(minutes=PHONE_SESSION_CAP_MIN)
+    now = datetime.now(_DIARY_TZ).replace(tzinfo=None)
+    stats: dict[str, list] = {}  # app -> [秒数, 打开次数]
+    for i, (app, opened_at) in enumerate(rows):
+        if opened_at[:10] != date:
+            break
+        try:
+            t = datetime.strptime(opened_at, "%Y-%m-%d %H:%M:%S")
+        except ValueError:
+            continue
+        if i + 1 < len(rows):
+            end = min(datetime.strptime(rows[i + 1][1], "%Y-%m-%d %H:%M:%S"), t + cap)
+        elif date == today:
+            end = min(now, t + cap)
+        else:
+            end = t + cap
+        seconds = max((end - t).total_seconds(), 0)
+        entry = stats.setdefault(app, [0.0, 0])
+        entry[0] += seconds
+        entry[1] += 1
+    apps = sorted(stats.items(), key=lambda kv: kv[1][0], reverse=True)
+    return JSONResponse({
+        "date": date,
+        "apps": [{"app": a, "minutes": round(sec / 60), "opens": n}
+                 for a, (sec, n) in apps],
+        "total_minutes": round(sum(sec for sec, _ in stats.values()) / 60),
+        "note": f"时长为估算：切App的间隔记给前一个App，单笔封顶{PHONE_SESSION_CAP_MIN}分钟",
     })
 
 

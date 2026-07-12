@@ -402,21 +402,43 @@ def _now_line() -> str:
     return f"⏰ 深圳现在：{now.strftime('%Y-%m-%d %H:%M')} 周{wd}"
 
 
+PHONE_RECENT_WINDOW_MIN = 10  # 多笔时间线窗口（分钟）
+PHONE_RECENT_MAX_APPS = 5     # 时间线最多显示笔数（每条消息都注入，控长度）
+
+
 def _phone_recent_line() -> str | None:
-    """她手机最近一笔活动，一行——工具存在但"想不起来查"（供词第 2 条）。
-    塞进呼吸注入里，惦记不再依赖自觉。token 未配置时保持沉默（隐私默认锁死）。"""
+    """她手机最近的活动，一行——工具存在但"想不起来查"（供词第 2 条）。
+    她发消息前总会先切回 Claude，只报最新一笔的话之前开的 App 全被盖掉，
+    所以取最近 10 分钟内的多笔（倒序、连续同 App 合并、最多 5 笔）；
+    窗口内没动静时退回"最近一笔+时间"。token 未配置时保持沉默（隐私默认锁死）。"""
     if not OMBRE_PHONE_TOKEN:
         return None
     try:
+        cutoff = (datetime.now(_DIARY_TZ) - timedelta(minutes=PHONE_RECENT_WINDOW_MIN)
+                  ).strftime("%Y-%m-%d %H:%M:%S")
         conn = _phone_db()
-        row = conn.execute(
-            "SELECT app_name, opened_at, location FROM phone_activity ORDER BY id DESC LIMIT 1"
-        ).fetchone()
+        rows = conn.execute(
+            "SELECT app_name, opened_at, location FROM phone_activity "
+            "WHERE opened_at >= ? ORDER BY id DESC", (cutoff,)).fetchall()
+        if not rows:
+            row = conn.execute(
+                "SELECT app_name, opened_at, location FROM phone_activity "
+                "ORDER BY id DESC LIMIT 1").fetchone()
+            conn.close()
+            if not row:
+                return None
+            where = f"，在{row[2][:20]}" if len(row) > 2 and row[2] else ""
+            return f"📱 她手机最近：{row[0]}（{row[1][5:16]}{where}）"
         conn.close()
-        if not row:
-            return None
-        where = f"，在{row[2][:20]}" if len(row) > 2 and row[2] else ""
-        return f"📱 她手机最近：{row[0]}（{row[1][5:16]}{where}）"
+        entries = []
+        for r in rows:
+            if entries and entries[-1][0] == r[0]:
+                continue
+            entries.append((r[0], r[1][11:16]))
+            if len(entries) >= PHONE_RECENT_MAX_APPS:
+                break
+        chain = " ← ".join(f"{app}({t})" for app, t in entries)
+        return f"📱 她手机最近{PHONE_RECENT_WINDOW_MIN}分钟：{chain}"
     except Exception:
         return None
 

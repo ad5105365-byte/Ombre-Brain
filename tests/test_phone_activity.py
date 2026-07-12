@@ -124,6 +124,33 @@ async def test_daily_counts_opens(bucket_mgr):
     assert by_app["微信"]["opens"] == 2
 
 
+# Render重新部署会清空sqlite（免费层无持久盘）：台账搭cloud_sync的车，
+# 空库时从台账把流水找回来
+@pytest.mark.asyncio
+async def test_survives_deploy_wipe(bucket_mgr):
+    import os
+    with patch.object(server, "bucket_mgr", bucket_mgr), \
+         patch.object(server, "OMBRE_PHONE_TOKEN", "secret"):
+        await server.phone_report(_Req({"app": "小红书"}, token="secret"))
+        await server.phone_report(
+            _Req({"app": "微信", "location": "深圳市南山区"}, token="secret"))
+        os.remove(os.path.join(bucket_mgr.base_dir, "phone_activity.db"))  # 模拟部署清盘
+        listed = _body(await server.phone_activity(_Req(token="secret")))
+    assert [e["app"] for e in listed] == ["微信", "小红书"]
+    assert listed[0]["location"] == "深圳市南山区"
+    assert listed[0]["time"]
+
+
+def test_cloud_sync_carries_ledger(tmp_path):
+    import cloud_sync
+    (tmp_path / "记忆.md").write_text("桶内容", encoding="utf-8")
+    (tmp_path / "phone_activity.log").write_text(
+        "2026-07-12 19:40:00|抖音|\n", encoding="utf-8")
+    (tmp_path / "phone_activity.db").write_bytes(b"\x00sqlite")
+    files = cloud_sync._scan_local(str(tmp_path))
+    assert set(files) == {"记忆.md", "phone_activity.log"}
+
+
 @pytest.mark.asyncio
 async def test_daily_empty_day(bucket_mgr):
     with patch.object(server, "bucket_mgr", bucket_mgr), \

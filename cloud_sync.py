@@ -54,14 +54,19 @@ def _ensure_table(cur):
     )
 
 
+# .md 之外也要过部署的纯文本文件（sqlite 等二进制不收，各自负责台账化）
+SYNC_EXTRA_FILES = {"phone_activity.log"}
+
+
 def _scan_local(buckets_dir):
-    """扫描本地 buckets 目录，返回 {相对路径: 内容}，只收 .md 记忆文件。"""
+    """扫描本地 buckets 目录，返回 {相对路径: 内容}，
+    收 .md 记忆文件和 SYNC_EXTRA_FILES 里点名的文本文件。"""
     files = {}
     if not os.path.isdir(buckets_dir):
         return files
     for root, _dirs, names in os.walk(buckets_dir):
         for n in names:
-            if not n.endswith(".md"):
+            if not n.endswith(".md") and n not in SYNC_EXTRA_FILES:
                 continue
             full = os.path.join(root, n)
             rel = os.path.relpath(full, buckets_dir).replace(os.sep, "/")

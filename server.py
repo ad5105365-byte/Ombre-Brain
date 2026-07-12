@@ -778,6 +778,19 @@ def _phone_db():
 
 
 @mcp.custom_route("/phone-report", methods=["POST"])
+def _clean_app_name(raw: str) -> str:
+    """归一化上报的 App 名。MacroDroid 的「触发应用名称」变量会包成
+    列表格式 [王者荣耀]，iOS 那边有时带引号，这里统一削掉外层括号/引号。"""
+    name = (raw or "").strip()
+    # 反复剥外层的 [] 和 引号，直到剥不动为止
+    while name and name[0] in "[\"'" and name[-1] in "]\"'":
+        stripped = name[1:-1].strip()
+        if stripped == name:
+            break
+        name = stripped
+    return name or "unknown"
+
+
 async def phone_report(request):
     from starlette.responses import JSONResponse
     err = _phone_auth_error(request)
@@ -787,7 +800,8 @@ async def phone_report(request):
         body = await request.json()
     except Exception:
         body = {}
-    app_name = str(body.get("app") or body.get("app_name") or "unknown").strip()[:50]
+    app_name = _clean_app_name(
+        str(body.get("app") or body.get("app_name") or "unknown"))[:50]
     location = str(body.get("location") or "").strip()[:120] or None
     now = datetime.now(_DIARY_TZ).strftime("%Y-%m-%d %H:%M:%S")
     conn = _phone_db()

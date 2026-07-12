@@ -55,6 +55,25 @@ async def test_report_and_query_roundtrip(bucket_mgr):
         assert summary["last_active"]
 
 
+# MacroDroid 的「触发应用名称」变量会把名字包成 [王者荣耀]，iOS 有时带引号
+@pytest.mark.asyncio
+async def test_report_strips_brackets_and_quotes(bucket_mgr):
+    with patch.object(server, "bucket_mgr", bucket_mgr), \
+         patch.object(server, "OMBRE_PHONE_TOKEN", "secret"):
+        for raw in ("[王者荣耀]", '"小红书"', "  [微信]  ", "['抖音']"):
+            await server.phone_report(_Req({"app": raw}, token="secret"))
+        listed = _body(await server.phone_activity(_Req(token="secret")))
+    assert [e["app"] for e in listed] == ["抖音", "微信", "小红书", "王者荣耀"]
+
+
+def test_clean_app_name_edges():
+    assert server._clean_app_name("[王者荣耀]") == "王者荣耀"
+    assert server._clean_app_name("王者荣耀") == "王者荣耀"
+    assert server._clean_app_name('"小红书"') == "小红书"
+    assert server._clean_app_name("") == "unknown"
+    assert server._clean_app_name("[]") == "unknown"
+
+
 @pytest.mark.asyncio
 async def test_ring_buffer_keeps_last_n(bucket_mgr):
     keep = server.PHONE_ACTIVITY_KEEP

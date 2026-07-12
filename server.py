@@ -402,7 +402,7 @@ def _now_line() -> str:
     return f"⏰ 深圳现在：{now.strftime('%Y-%m-%d %H:%M')} 周{wd}"
 
 
-PHONE_RECENT_WINDOW_MIN = 10  # 多笔时间线窗口（分钟）
+PHONE_RECENT_WINDOW_MIN = 30  # 多笔时间线窗口（分钟）——她打一把王者20多分钟，10分钟兜不住
 PHONE_RECENT_MAX_APPS = 5     # 时间线最多显示笔数（每条消息都注入，控长度）
 
 

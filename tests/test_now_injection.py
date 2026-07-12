@@ -46,7 +46,7 @@ def _phone_test_db(tmp_path, rows):
     return lambda: sqlite3.connect(tmp_path / "phone.db")
 
 
-# 10 分钟窗口内没记录 → 退回"最近一笔+时间"（老格式）
+# 窗口内没记录 → 退回"最近一笔+时间"（老格式）
 def test_phone_line_falls_back_to_latest(monkeypatch, tmp_path):
     monkeypatch.setattr(server, "OMBRE_PHONE_TOKEN", "secret")
     monkeypatch.setattr(server, "_phone_db",
@@ -84,7 +84,7 @@ def test_phone_line_timeline_in_window(monkeypatch, tmp_path):
         ("Claude", _ts(1), None),
     ]))
     assert server._phone_recent_line() == (
-        f"📱 她手机最近10分钟：Claude({_hm(1)}) ← ChatGPT({_hm(2)}) "
+        f"📱 她手机最近{server.PHONE_RECENT_WINDOW_MIN}分钟：Claude({_hm(1)}) ← ChatGPT({_hm(2)}) "
         f"← 抖音({_hm(6)}) ← 微信({_hm(9)})")
 
 
@@ -97,7 +97,7 @@ def test_phone_line_dedup_and_cap(monkeypatch, tmp_path):
     line = server._phone_recent_line()
     # 倒序取 App6..App2 就满 5 笔，合并后的 Claude 和更早的 App 被截掉
     assert line == (
-        f"📱 她手机最近10分钟：App6({_hm(1)}) ← App5({_hm(2)}) "
+        f"📱 她手机最近{server.PHONE_RECENT_WINDOW_MIN}分钟：App6({_hm(1)}) ← App5({_hm(2)}) "
         f"← App4({_hm(3)}) ← App3({_hm(4)}) ← App2({_hm(5)})")
     assert "Claude" not in line
 

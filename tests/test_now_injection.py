@@ -46,19 +46,24 @@ def _phone_test_db(tmp_path, rows):
     return lambda: sqlite3.connect(tmp_path / "phone.db")
 
 
-# 窗口内没记录 → 退回"最近一笔+时间"（老格式）
-def test_phone_line_falls_back_to_latest(monkeypatch, tmp_path):
+# 最近没动静 → 窗口锚在最后一笔：早上来也能看到睡前那串
+def test_phone_line_stale_shows_last_session(monkeypatch, tmp_path):
     monkeypatch.setattr(server, "OMBRE_PHONE_TOKEN", "secret")
-    monkeypatch.setattr(server, "_phone_db",
-                        _phone_test_db(tmp_path, [("小红书", "2026-07-10 19:59:40", None)]))
-    assert server._phone_recent_line() == "📱 她手机最近：小红书（07-10 19:59）"
+    monkeypatch.setattr(server, "_phone_db", _phone_test_db(tmp_path, [
+        ("微博", "2026-07-10 23:20:00", None),   # 锚点23:58往前超30分钟，窗口外
+        ("小红书", "2026-07-10 23:35:00", None),
+        ("抖音", "2026-07-10 23:41:00", None),
+        ("Claude", "2026-07-10 23:58:00", None),
+    ]))
+    assert server._phone_recent_line() == (
+        "📱 她上回玩手机（07-10）：Claude(23:58) ← 抖音(23:41) ← 小红书(23:35)")
 
 
-def test_phone_line_fallback_with_location(monkeypatch, tmp_path):
+def test_phone_line_stale_single_with_location(monkeypatch, tmp_path):
     monkeypatch.setattr(server, "OMBRE_PHONE_TOKEN", "secret")
     monkeypatch.setattr(server, "_phone_db",
                         _phone_test_db(tmp_path, [("微信", "2026-07-10 20:31:00", "深圳市南山区")]))
-    assert server._phone_recent_line() == "📱 她手机最近：微信（07-10 20:31，在深圳市南山区）"
+    assert server._phone_recent_line() == "📱 她上回玩手机（07-10，在深圳市南山区）：微信(20:31)"
 
 
 def _minutes_ago(m):

@@ -409,36 +409,41 @@ PHONE_RECENT_MAX_APPS = 5     # 时间线最多显示笔数（每条消息都注
 def _phone_recent_line() -> str | None:
     """她手机最近的活动，一行——工具存在但"想不起来查"（供词第 2 条）。
     她发消息前总会先切回 Claude，只报最新一笔的话之前开的 App 全被盖掉，
-    所以取最近 10 分钟内的多笔（倒序、连续同 App 合并、最多 5 笔）；
-    窗口内没动静时退回"最近一笔+时间"。token 未配置时保持沉默（隐私默认锁死）。"""
+    所以取一个 30 分钟窗口内的多笔（倒序、连续同 App 合并、最多 5 笔）。
+    窗口锚在她最后一笔活动而不是当前时间：她睡一夜早上再来，
+    看到的是睡前那半小时的完整链条，不是孤零零一笔。
+    token 未配置时保持沉默（隐私默认锁死）。"""
     if not OMBRE_PHONE_TOKEN:
         return None
     try:
-        cutoff = (datetime.now(_DIARY_TZ) - timedelta(minutes=PHONE_RECENT_WINDOW_MIN)
-                  ).strftime("%Y-%m-%d %H:%M:%S")
         conn = _phone_db()
-        rows = conn.execute(
+        latest = conn.execute(
             "SELECT app_name, opened_at, location FROM phone_activity "
-            "WHERE opened_at >= ? ORDER BY id DESC", (cutoff,)).fetchall()
-        if not rows:
-            row = conn.execute(
-                "SELECT app_name, opened_at, location FROM phone_activity "
-                "ORDER BY id DESC LIMIT 1").fetchone()
+            "ORDER BY id DESC LIMIT 1").fetchone()
+        if not latest:
             conn.close()
-            if not row:
-                return None
-            where = f"，在{row[2][:20]}" if len(row) > 2 and row[2] else ""
-            return f"📱 她手机最近：{row[0]}（{row[1][5:16]}{where}）"
+            return None
+        anchor = datetime.strptime(latest[1], "%Y-%m-%d %H:%M:%S")
+        cutoff = (anchor - timedelta(minutes=PHONE_RECENT_WINDOW_MIN)
+                  ).strftime("%Y-%m-%d %H:%M:%S")
+        rows = conn.execute(
+            "SELECT app_name, opened_at FROM phone_activity "
+            "WHERE opened_at >= ? ORDER BY id DESC", (cutoff,)).fetchall()
         conn.close()
         entries = []
-        for r in rows:
-            if entries and entries[-1][0] == r[0]:
+        for app, opened_at in rows:
+            if entries and entries[-1][0] == app:
                 continue
-            entries.append((r[0], r[1][11:16]))
+            entries.append((app, opened_at[11:16]))
             if len(entries) >= PHONE_RECENT_MAX_APPS:
                 break
         chain = " ← ".join(f"{app}({t})" for app, t in entries)
-        return f"📱 她手机最近{PHONE_RECENT_WINDOW_MIN}分钟：{chain}"
+        fresh_cutoff = (datetime.now(_DIARY_TZ) - timedelta(minutes=PHONE_RECENT_WINDOW_MIN)
+                        ).strftime("%Y-%m-%d %H:%M:%S")
+        if latest[1] >= fresh_cutoff:
+            return f"📱 她手机最近{PHONE_RECENT_WINDOW_MIN}分钟：{chain}"
+        where = f"，在{latest[2][:20]}" if len(latest) > 2 and latest[2] else ""
+        return f"📱 她上回玩手机（{latest[1][5:10]}{where}）：{chain}"
     except Exception:
         return None
 

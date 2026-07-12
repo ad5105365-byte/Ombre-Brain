@@ -46,18 +46,60 @@ def _phone_test_db(tmp_path, rows):
     return lambda: sqlite3.connect(tmp_path / "phone.db")
 
 
-def test_phone_line_reads_latest(monkeypatch, tmp_path):
+# 窗口内没记录 → 退回"最近一笔+时间"（老格式）
+def test_phone_line_falls_back_to_latest(monkeypatch, tmp_path):
     monkeypatch.setattr(server, "OMBRE_PHONE_TOKEN", "secret")
     monkeypatch.setattr(server, "_phone_db",
                         _phone_test_db(tmp_path, [("小红书", "2026-07-10 19:59:40", None)]))
     assert server._phone_recent_line() == "📱 她手机最近：小红书（07-10 19:59）"
 
 
-def test_phone_line_with_location(monkeypatch, tmp_path):
+def test_phone_line_fallback_with_location(monkeypatch, tmp_path):
     monkeypatch.setattr(server, "OMBRE_PHONE_TOKEN", "secret")
     monkeypatch.setattr(server, "_phone_db",
                         _phone_test_db(tmp_path, [("微信", "2026-07-10 20:31:00", "深圳市南山区")]))
     assert server._phone_recent_line() == "📱 她手机最近：微信（07-10 20:31，在深圳市南山区）"
+
+
+def _minutes_ago(m):
+    from datetime import timedelta
+    return (server.datetime.now(server._DIARY_TZ) - timedelta(minutes=m))
+
+
+def _ts(m):
+    return _minutes_ago(m).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _hm(m):
+    return _minutes_ago(m).strftime("%H:%M")
+
+
+# 窗口内多笔 → 倒序时间线，Claude 盖不掉之前开的 App
+def test_phone_line_timeline_in_window(monkeypatch, tmp_path):
+    monkeypatch.setattr(server, "OMBRE_PHONE_TOKEN", "secret")
+    monkeypatch.setattr(server, "_phone_db", _phone_test_db(tmp_path, [
+        ("微信", _ts(9), None),
+        ("抖音", _ts(6), None),
+        ("ChatGPT", _ts(2), None),
+        ("Claude", _ts(1), None),
+    ]))
+    assert server._phone_recent_line() == (
+        f"📱 她手机最近{server.PHONE_RECENT_WINDOW_MIN}分钟：Claude({_hm(1)}) ← ChatGPT({_hm(2)}) "
+        f"← 抖音({_hm(6)}) ← 微信({_hm(9)})")
+
+
+# 连续同一 App 合并（来回切 Claude 不刷屏），超过 5 笔截断
+def test_phone_line_dedup_and_cap(monkeypatch, tmp_path):
+    monkeypatch.setattr(server, "OMBRE_PHONE_TOKEN", "secret")
+    rows = [("Claude", _ts(9), None), ("Claude", _ts(8), None)]
+    rows += [(f"App{i}", _ts(7 - i), None) for i in range(7)]  # App0..App6
+    monkeypatch.setattr(server, "_phone_db", _phone_test_db(tmp_path, rows))
+    line = server._phone_recent_line()
+    # 倒序取 App6..App2 就满 5 笔，合并后的 Claude 和更早的 App 被截掉
+    assert line == (
+        f"📱 她手机最近{server.PHONE_RECENT_WINDOW_MIN}分钟：App6({_hm(1)}) ← App5({_hm(2)}) "
+        f"← App4({_hm(3)}) ← App3({_hm(4)}) ← App2({_hm(5)})")
+    assert "Claude" not in line
 
 
 @pytest.mark.asyncio

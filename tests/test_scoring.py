@@ -126,6 +126,47 @@ class TestDecayScoreSpecial:
 
 
 # ============================================================
+# None-safety regression (ported from upstream P0luz 94a3d35)
+# frontmatter/YAML 里字段写成裸 key（importance:）解析出 None，
+# .get(key, default) 不会用 default 顶上 → int(None)/float(None) 抛异常。
+# calculate_score 没有外层 try/except，异常会一路炸穿到 breath-hook 被吞掉整口呼吸。
+# ============================================================
+class TestNoneSafety:
+    """显式 None 值（frontmatter 空字段）不能让打分崩掉。"""
+
+    def _meta(self, **overrides):
+        meta = {
+            "importance": 5,
+            "activation_count": 2,
+            "created": (datetime.now() - timedelta(days=1)).isoformat(),
+            "last_active": (datetime.now() - timedelta(days=1)).isoformat(),
+            "arousal": 0.4,
+            "type": "dynamic",
+        }
+        meta.update(overrides)
+        return meta
+
+    def test_none_importance_no_crash(self, decay_eng):
+        """importance=None（frontmatter 空字段）不崩，退回默认 5。"""
+        score = decay_eng.calculate_score(self._meta(importance=None))
+        assert score > 0
+
+    def test_none_activation_count_no_crash(self, decay_eng):
+        """activation_count=None 不崩，退回默认 1。"""
+        score = decay_eng.calculate_score(self._meta(activation_count=None))
+        assert score > 0
+
+    def test_none_matches_missing_key(self, decay_eng):
+        """None 值和 key 缺失应打出同一个分（都退回默认）。"""
+        with_none = decay_eng.calculate_score(self._meta(importance=None, activation_count=None))
+        m = self._meta()
+        del m["importance"]
+        del m["activation_count"]
+        without_keys = decay_eng.calculate_score(m)
+        assert with_none == pytest.approx(without_keys)
+
+
+# ============================================================
 # Decay score modifiers
 # ============================================================
 class TestDecayScoreModifiers:

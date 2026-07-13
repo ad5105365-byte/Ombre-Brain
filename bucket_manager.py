@@ -520,7 +520,10 @@ class BucketManager:
                 time_score = self._calc_time_score(meta)
 
                 # Dim 4: importance (direct normalization)
-                importance_score = max(1, min(10, int(meta.get("importance", 5)))) / 10.0
+                # .get(key, default) 不管 None 值，key 存在但为 None 时 int(None) 会
+                # 抛异常——这里外层有 try/except 兜底不会崩，但会让这个桶从这次搜索
+                # 结果里悄悄消失。改用 or 顶上 None，避免这种沉默丢失。
+                importance_score = max(1, min(10, int(meta.get("importance") or 5))) / 10.0
 
                 # --- Weighted sum / 加权求和 ---
                 total = (

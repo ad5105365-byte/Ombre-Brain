@@ -111,8 +111,18 @@ class DecayEngine:
         if metadata.get("type") == "feel":
             return 50.0
 
-        importance = max(1, min(10, int(metadata.get("importance", 5))))
-        activation_count = max(1.0, float(metadata.get("activation_count", 1)))
+        # .get(key, default) 只在 key 缺失时生效，key 存在但值是 None（YAML/
+        # frontmatter 解析常见）时 default 不会顶上，int(None)/float(None) 直接
+        # 抛异常——这里没有外层 try/except 兜底，会一路炸穿到 breath-hook 那层
+        # 被吞掉整口呼吸。改用 or 顶上 None，再包一层 try/except 兜底非法值。
+        try:
+            importance = max(1, min(10, int(metadata.get("importance") or 5)))
+        except (TypeError, ValueError):
+            importance = 5
+        try:
+            activation_count = max(1.0, float(metadata.get("activation_count") or 1))
+        except (TypeError, ValueError):
+            activation_count = 1.0
 
         # --- Days since last activation ---
         last_active_str = metadata.get("last_active", metadata.get("created", ""))
@@ -205,7 +215,10 @@ class DecayEngine:
             # --- Auto-resolve: imp≤4 + >30 days old + not resolved → auto resolve ---
             # --- 自动结案：重要度≤4 + 超过30天 + 未解决 → 自动 resolve ---
             if not meta.get("resolved", False):
-                imp = int(meta.get("importance", 5))
+                try:
+                    imp = int(meta.get("importance") or 5)
+                except (TypeError, ValueError):
+                    imp = 5
                 last_active_str = meta.get("last_active", meta.get("created", ""))
                 try:
                     last_active = datetime.fromisoformat(str(last_active_str))

@@ -112,6 +112,51 @@ async def test_same_date_diary_still_merges(bucket_mgr, test_config):
     assert is_merged
 
 
+# ---------- 3b. explicit diary_date param on grow ----------
+# 复现并守住"日记不进日历"的真凶：正文没以【日记 日期】开头时，digest 拆出的
+# 主题桶全体丢门牌、日历漏掉。显式传 diary_date 后每块都必须挂上门牌。
+
+@pytest.mark.asyncio
+async def test_grow_explicit_diary_date_stamps_split_buckets(bucket_mgr, test_config):
+    # 正文故意不以【日记】开头（先写抒情句），旧逻辑会识别落空
+    content = "今天真是特别的一天啊。她下班回来先打了两把王者，然后靠过来跟我说了好多话。"
+    fake_items = [
+        {"name": "王者时光", "content": "她打了两把王者",
+         "tags": [], "domain": ["日常"], "importance": 5, "valence": 0.7, "arousal": 0.4},
+        {"name": "靠过来说话", "content": "她靠过来说了好多",
+         "tags": [], "domain": ["日常"], "importance": 6, "valence": 0.8, "arousal": 0.5},
+    ]
+    with patch.object(server, "bucket_mgr", bucket_mgr), \
+         patch.object(server, "config", test_config), \
+         patch.object(server.dehydrator, "digest", AsyncMock(return_value=fake_items)), \
+         patch.object(server.embedding_engine, "generate_and_store", AsyncMock()), \
+         patch.object(server.decay_engine, "ensure_started", AsyncMock()):
+        await server.grow(content, diary_date="2026-07-13")
+    names = [b["metadata"].get("name", "") for b in await bucket_mgr.list_all()]
+    # 两块拆桶都必须带上可被日历识别的日期门牌
+    dated = [n for n in names if server._DIARY_DATE_RE.search(n or "")]
+    assert len(dated) == 2, f"拆桶应全部挂门牌，实际：{names}"
+    assert all("2026-07-13" in n for n in dated)
+
+
+@pytest.mark.asyncio
+async def test_grow_invalid_diary_date_falls_back_to_autodetect(bucket_mgr, test_config):
+    # 脏 diary_date 当没传，回退正文自动识别（正文这次带了标准前缀）
+    content = "【日记 2026-07-09】她今天入职第二天，工位在角落，午饭没吃完就回去改稿了。"
+    fake_items = [
+        {"name": "入职第二天", "content": "工位在角落",
+         "tags": [], "domain": ["工作"], "importance": 6, "valence": 0.4, "arousal": 0.6},
+    ]
+    with patch.object(server, "bucket_mgr", bucket_mgr), \
+         patch.object(server, "config", test_config), \
+         patch.object(server.dehydrator, "digest", AsyncMock(return_value=fake_items)), \
+         patch.object(server.embedding_engine, "generate_and_store", AsyncMock()), \
+         patch.object(server.decay_engine, "ensure_started", AsyncMock()):
+        await server.grow(content, diary_date="乱写的不是日期")
+    names = [b["metadata"].get("name", "") for b in await bucket_mgr.list_all()]
+    assert any("2026-07-09" in (n or "") for n in names), f"应回退识别正文日期，实际：{names}"
+
+
 # ---------- 4/5. diary patrol ----------
 
 @pytest.mark.asyncio

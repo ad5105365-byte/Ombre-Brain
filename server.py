@@ -2203,17 +2203,28 @@ async def checkup(date: str = "") -> str:
 
 
 @mcp.tool()
-async def grow(content: str) -> str:
-    """日记归档,自动拆分为多桶。短内容(<30字)走快速路径。"""
+async def grow(content: str, diary_date: str = "") -> str:
+    """日记归档,自动拆分为多桶。短内容(<30字)走快速路径。
+    diary_date=存日记时把日期(YYYY-MM-DD)显式传进来,拆出的每块都会挂上
+    【日记 日期】门牌进日历——比赌正文开头格式对不对可靠。不传则自动从正文识别。"""
     await decay_engine.ensure_started()
 
     if not content or not content.strip():
         return "内容为空，无法整理。"
 
-    # Detect diary marker up front: digest rewrites bucket names and used to
-    # drop the 【日记 YYYY-MM-DD】 prefix the dashboard calendar keys on
-    # 提前识别日记标记：digest 重写桶名时会吃掉日历依赖的日期前缀，这里焊回去
-    diary_date = _extract_diary_date(content)
+    # Diary date drives the 【日记 YYYY-MM-DD】 name prefix the dashboard calendar
+    # keys on. Explicit param wins; else auto-detect from the content head.
+    # 日历靠桶名里的【日记 日期】门牌认日记。以前只从正文开头识别，克克要是
+    # 先写了句抒情、或亲密日记写成散文没加前缀，识别就落空，digest 拆出的主题桶
+    # 全体丢门牌、日历漏掉、查房也救不了（桶名不以"日记"开头）。现在允许显式传入
+    # 日期兜底：传了就权威，每块都挂门牌，不再赌正文格式。
+    # 显式传入的日期做格式校验，脏值（非 YYYY-MM-DD）当没传，回退自动识别。
+    diary_date = diary_date.strip()
+    if diary_date and not re.match(r"^\d{4}-\d{2}-\d{2}$", diary_date):
+        logger.warning(f"grow: 忽略非法 diary_date={diary_date!r}，回退自动识别")
+        diary_date = ""
+    if not diary_date:
+        diary_date = _extract_diary_date(content)
 
     # --- Short content fast path: skip digest, use hold logic directly ---
     # --- 短内容快速路径：跳过 digest 拆分，直接走 hold 逻辑省一次 API ---

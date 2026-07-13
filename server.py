@@ -777,7 +777,6 @@ def _phone_db():
     return conn
 
 
-@mcp.custom_route("/phone-report", methods=["POST"])
 def _clean_app_name(raw: str) -> str:
     """归一化上报的 App 名。MacroDroid 的「触发应用名称」变量会包成
     列表格式 [王者荣耀]，iOS 那边有时带引号，这里统一削掉外层括号/引号。"""
@@ -791,6 +790,7 @@ def _clean_app_name(raw: str) -> str:
     return name or "unknown"
 
 
+@mcp.custom_route("/phone-report", methods=["POST"])
 async def phone_report(request):
     from starlette.responses import JSONResponse
     err = _phone_auth_error(request)

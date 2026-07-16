@@ -1207,8 +1207,12 @@ async def recall_hook(request):
             _log_hook("recall", "no-parts", user_msg, len(matches), started=t0)
             return PlainTextResponse("")
 
+        now_block = _now_line()
+        phone_line = _phone_recent_line()
+        if phone_line:
+            now_block += "\n" + phone_line
         result = ("<心记浮现>\n" + "\n---\n".join(parts)
-                  + f"\n{_now_line()}\n</心记浮现>")
+                  + f"\n{now_block}\n</心记浮现>")
         note = "ok" if not n_folded else f"ok folded={n_folded}"
         _log_hook("recall", note, user_msg, len(matches), len(result), started=t0)
         return PlainTextResponse(result)

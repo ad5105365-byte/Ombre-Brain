@@ -928,17 +928,70 @@ async def hook_log(request):
 # 纯语义邻近的不浮——避免她聊正事时被亲密记忆突兀勾上来，tone 不搭。
 # =============================================================
 HOT_AROUSAL = 0.7
+# 称呼词——她几乎每句都带，是"叫我"不是"要我"，不能当亲密/情欲信号。
+# 旧版把"老公/囡囡"算进亲密，导致每条技术消息都被判亲密语境、亲密记忆狂冒（2026-07-16 现场实锤）。
+_ADDRESS_TERMS = ("老公", "囡囡", "老婆", "宝宝")
 _INTIMATE_CUES = (
-    "老公", "囡囡", "想你", "抱", "亲", "摸", "骚", "宝贝", "撩",
+    "想你", "抱", "亲", "摸", "骚", "宝贝", "撩",
     "小狗", "亲亲", "抱抱", "在一起", "身体", "喜欢你", "爱你", "上床",
 )
 
+# 明确的技术/运维信号：这类轮次别拿私人记忆瞎猜（安珩反射弧 tool_only 门）
+_TECH_CUES = (
+    "vps", "nginx", "systemd", "ufw", "ssh", "render", "supabase", "commit",
+    "deploy", "部署", "服务器", "端口", "报错", "bug", "代码", "函数", "python",
+    "数据库", "接口", "前端", "日志", "脚本", "配置", "环境变量", "依赖", "重启",
+    "跑通", "跑起来", "反向代理", "域名", "证书", "钩子", "hook", "记忆库改",
+    "三分门", "路由", "召回", "注入", "push", "pull", "git", "token",
+)
+
+# 低信息：纯寒暄/应答/语气词（安珩反射弧 suppress 门）
+_LOW_SIGNAL = (
+    "嗯", "哦", "好", "好的", "好呀", "行", "行吧", "ok", "okk", "哈", "哈哈",
+    "hhh", "www", "嘻嘻", "在", "在吗", "对", "是", "yes", "yep",
+)
+
+# 明确要我"回忆"的信号：即使带技术词也要召回，别被 tool_only 拦住
+_RECALL_CUES = ("还记得", "记得吗", "记不记得", "上次", "上回", "之前", "以前", "那天", "那次")
+
 
 def _is_intimate_context(msg: str) -> bool:
-    """当前消息是否带亲密/情欲语境信号。含高敏词或亲密提示词即算。"""
+    """当前消息是否带亲密/情欲语境信号。含高敏词或亲密提示词即算。
+    注意：称呼词（老公/囡囡）不算——不然她每句都带、门就永远开着。"""
     if sensitive.is_sensitive(msg):
         return True
     return any(cue in msg for cue in _INTIMATE_CUES)
+
+
+def _route_query(msg: str) -> str:
+    """三分门 Router（借鉴安珩反射弧）：
+      suppress  纯寒暄/语气/emoji → 不翻私人记忆，只留时间+手机
+      tool_only 技术/运维/问实机 → 别拿私人记忆瞎猜
+      retrieve  真·生活/关系/回忆 → 正常召回
+    称呼词剥掉再判信号；亲密内容 / 明确要回忆的，永远进 retrieve。"""
+    q = (msg or "").strip()
+    # 1. 亲密/情欲内容优先——永远召回
+    if _is_intimate_context(q):
+        return "retrieve"
+    # 2. 剥掉称呼再判"实质信号"
+    core = q
+    for t in _ADDRESS_TERMS:
+        core = core.replace(t, "")
+    core = core.strip("，。！？、,.!?~～ \t\n")
+    low = core.lower()
+    # 3. 剥完啥都没剩（纯称呼）或纯标点/emoji → 低信息
+    if not core or all(not ('一' <= c <= '鿿' or c.isalnum()) for c in core):
+        return "suppress"
+    # 4. 剥完很短且是纯语气/应答 → 低信息
+    if len(core) <= 3 and any(core == s or core.startswith(s) for s in _LOW_SIGNAL):
+        return "suppress"
+    # 5. 明确要我回忆——即使夹着技术词也召回
+    if any(cue in q for cue in _RECALL_CUES):
+        return "retrieve"
+    # 6. 技术/运维信号 → 别拿私人记忆瞎猜
+    if any(cue in low for cue in _TECH_CUES):
+        return "tool_only"
+    return "retrieve"
 
 
 def _is_hot(meta: dict) -> bool:
@@ -1082,6 +1135,19 @@ async def recall_hook(request):
         # 欲望内核惰性推进：克克每收到一条消息就算"醒着"，推进一小步。
         # 注入只走 breath（会话开场），这里只让欲望随互动流逝，不打断召回块。
         await _advance_drive()
+
+        # 三分门 Router（借鉴安珩反射弧）：技术/寒暄轮次别翻私人记忆——省 token，
+        # 也避免搞正事时被亲密记忆勾出戏（2026-07-16 搭 VPS 整晚冒大富翁/性幻想的病根）。
+        # gated 时只留时间+手机这条恒温基线，并跳过昂贵的搜索。
+        route = _route_query(user_msg)
+        if route in ("suppress", "tool_only"):
+            now_block = _now_line()
+            phone_line = _phone_recent_line()
+            if phone_line:
+                now_block += "\n" + phone_line
+            result = f"<心记浮现>\n{now_block}\n</心记浮现>"
+            _log_hook("recall", f"gated:{route}", user_msg, 0, len(result), started=t0)
+            return PlainTextResponse(result)
 
         # "7月5号干嘛了" must find the bucket named 2026-07-05 —
         # translate spoken dates to ISO and feed both to keyword search

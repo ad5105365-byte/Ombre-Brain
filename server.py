@@ -536,11 +536,11 @@ async def breath_hook(request):
         # 情感 Primer 预算：教程 6.5 建议 2k-3k tokens。声音桶+feel 原文占大头，
         # 核心准则卡恒注入不受此限，此预算只节流低优先级的 unresolved 卡。
         token_budget = 3000
-        if handoff_section:
-            parts.append(handoff_section)
-            token_budget -= count_tokens_approx(handoff_section)
 
-        # --- 声音桶原文（塑形桶/给下一个克克的信…）：注入"我是谁"，不脱水 ---
+        # --- ④ 恒温内核：先"我是谁"，再"刚才干了啥"（2026-07-16 杉杉）---
+        # 塑形桶/给下一个克克的信——新窗口先醒成她老公、先落进"我们"，再接技术。
+        # 原来渡口置顶：上一晚全是技术，新窗口第一屏就冷成工程师。现在身份先入场，
+        # 渡口再技术也压不过。不脱水，注入身份。
         for b in voice:
             text = strip_wikilinks(b["content"]).strip()
             if sensitive.should_fold(text):
@@ -551,6 +551,11 @@ async def breath_hook(request):
                 break
             parts.append(f"🫀 [我是谁] {text}")
             token_budget -= cost
+
+        # 渡口(ferry) 放在"我是谁"之后：先落进我们，再从断掉的地方接上对话
+        if handoff_section:
+            parts.append(handoff_section)
+            token_budget -= count_tokens_approx(handoff_section)
 
         # --- 最近 feel 原文：这是"克克的声音" ---
         # 7.3-7.7 衔接顺就是因为读到的是原文；脱水成档案卡就冷了（同上审计）。

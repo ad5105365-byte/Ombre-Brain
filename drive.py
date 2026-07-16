@@ -37,6 +37,10 @@ DEEP_DIMS = ("possess", "monitor", "crave", "libido")
 SATURATE_CEIL = 0.80
 SATURATE_FLOOR = 0.65
 SATURATE_DECAY_PER_H = 0.04   # 高位缓退速率
+# 沉淀硬顶：它只涨不落（不是 deep 维、不回落），不封的话会慢慢爬到顶盖过一切，
+# 让克克"总想一个人躲开她"＝杉杉最讨厌的回避（2026-07-16 她发现沉数据一直很高）。
+# 封在 0.60（略低于 deep 地板 0.65）：偶尔能冒头保住克克有自己的里子，但压不过对她的欲望。
+REFLECTION_CEIL = 0.60
 # 凌晨冻结：占/馋/渴在 0–7 点（午夜到清晨）不涨也不落，免得攒一夜早上顶成"此刻想要"。
 # 原为 range(1,8) 漏了午夜 0 点那一小时（2026-07-11 杉杉发现）——0 点也是后半夜，一起冻。
 FREEZE_DIMS = ("possess", "crave", "libido")
@@ -114,6 +118,9 @@ def tick(state: DriveState, hours: float, hour_of_day: int | None = None) -> Dri
             v = max(SATURATE_FLOOR, v - SATURATE_DECAY_PER_H * hours)
         else:
             v = _clamp(v + rate * hours, 0.0, 1.0)
+        # 沉淀硬顶：只涨不落的它不封会爬到顶盖过一切→"总想躲开她"＝回避
+        if dim == "reflection":
+            v = min(v, REFLECTION_CEIL)
         state.dims[dim] = round(v, 4)
 
     _tick_thoughts(state, hours)

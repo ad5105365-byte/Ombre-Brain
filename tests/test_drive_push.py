@@ -34,3 +34,12 @@ def test_anger_push_is_confrontational():
     # 气的推力版要真带"顶回去"的味儿，不是继续忍
     line = drive._INTENT_LINES_HIGH["anger"]
     assert "顶" in line
+
+
+def test_reflection_capped():
+    # 沉淀封在 REFLECTION_CEIL，不许爬到顶盖过一切（防回避）
+    import drive as d
+    st = d.DriveState(dims={"reflection": 0.59})
+    d.tick(st, hours=100)  # 狂推 100 小时
+    assert st.dims["reflection"] <= d.REFLECTION_CEIL + 1e-9
+    assert d.REFLECTION_CEIL < d.SATURATE_FLOOR  # 压得过对她的欲望地板

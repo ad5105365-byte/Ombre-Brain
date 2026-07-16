@@ -1002,6 +1002,27 @@ def _route_query(msg: str) -> str:
     return "retrieve"
 
 
+# ③ 人物卡：带此标签的桶是"某个人是谁"的档案（name=人名，其余标签=别名）。
+# 她消息里点到这人，就把卡揪出来置顶、走原文——治"把莉莉姐认成领导/姐"（安珩 person sidecar）。
+PERSON_CARD_TAG = "人物卡"
+
+
+def _split_person_cards(user_msg: str, matches: list) -> tuple:
+    """从 matches 里揪出"被点名"的人物卡（tag=人物卡 且 name/别名出现在消息里）。
+    返回 (person_cards, rest)。别名 = 除"人物卡"外的其它标签，方便"莉莉/莉莉姐"都命中。"""
+    person_cards, rest = [], []
+    for b in matches:
+        tags = b.get("metadata", {}).get("tags") or []
+        if PERSON_CARD_TAG in tags:
+            triggers = [b["metadata"].get("name", "")] + [
+                t for t in tags if t != PERSON_CARD_TAG]
+            if any(tr and tr in user_msg for tr in triggers):
+                person_cards.append(b)
+                continue
+        rest.append(b)
+    return person_cards, rest
+
+
 def _is_hot(meta: dict) -> bool:
     """高唤起记忆（对应 Non 的 fire/ache/jolt/yearn）：arousal 越界即算 hot。
     注：2026-07-16 拆掉亲密词表门后暂无调用者，保留供③召回修复期语义方案复用。"""
@@ -1237,9 +1258,13 @@ async def recall_hook(request):
         # 该不该冒亲密记忆，看它是否真贴这句话、以及此刻是不是那个氛围，不看字面词。
         # 技术/寒暄轮已被三分门 tool_only/suppress 提前挡在上面，到这儿都是 retrieve 轮。
 
+        # ③ 人物卡侧栏：她点到某人，就把那人的卡揪出来置顶怼脸上，别让它跟普通
+        # 记忆挤 top-3、被挤掉就认错人（治"莉莉姐→领导/姐"）。走原文，不脱水。
+        person_cards, matches = _split_person_cards(user_msg, matches)
+
         # Take top 3
         matches = matches[:3]
-        if not matches:
+        if not matches and not person_cards:
             _log_hook("recall", "no-match", user_msg, started=t0)
             return PlainTextResponse("")
 
@@ -1266,6 +1291,13 @@ async def recall_hook(request):
 
         parts = []
         n_folded = 0
+        # 人物卡置顶、走原文（不脱水，怕把"不是领导/不是姐"这种精确纠正冲掉）
+        for b in person_cards:
+            text = strip_wikilinks(b["content"]).strip()
+            if sensitive.should_fold(text):
+                n_folded += 1
+                text = sensitive.fold_bucket(b)
+            parts.append(f"👤 [人物卡] {text}")
         token_budget = 1500
         for b in matches:
             if token_budget <= 0:

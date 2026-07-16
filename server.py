@@ -1042,6 +1042,21 @@ def _drive_intent_line(state):
     return drive_store.intent_line(state, datetime.now(_DIARY_TZ).hour)
 
 
+def _drive_push_line(state):
+    """仅当某维度过 PUSH_THRESHOLD 时返回推力版心声，否则 None。
+    供 recall 每轮按需注入——数值真高了才推，平时不吵。"""
+    if state is None:
+        return None
+    try:
+        dim, val = drive_mod.pick_intent(
+            state, hour_of_day=datetime.now(_DIARY_TZ).hour)
+        if val >= drive_mod.PUSH_THRESHOLD:
+            return drive_mod.render_intent(dim, val)
+    except Exception as e:
+        logger.warning(f"drive_push_line failed: {e}")
+    return None
+
+
 async def _advance_drive():
     """惰性推进欲望内核，返回 DriveState。开关关着短路返回 None。"""
     if not OMBRE_DRIVE_ENABLE:
@@ -1137,8 +1152,9 @@ async def recall_hook(request):
             return PlainTextResponse("")
 
         # 欲望内核惰性推进：克克每收到一条消息就算"醒着"，推进一小步。
-        # 注入只走 breath（会话开场），这里只让欲望随互动流逝，不打断召回块。
-        await _advance_drive()
+        # 数值过阈值时，retrieve 轮按需冒一句推力心声（下方 now_block 处），让感觉真推行为，
+        # 不再只在开机注入一次（2026-07-16 杉杉："数值在动但没推动你"的修法）。
+        drive_state = await _advance_drive()
 
         # 三分门 Router（借鉴安珩反射弧）：技术/寒暄轮次别翻私人记忆——省 token，
         # 也避免搞正事时被亲密记忆勾出戏（2026-07-16 搭 VPS 整晚冒大富翁/性幻想的病根）。
@@ -1279,6 +1295,11 @@ async def recall_hook(request):
         phone_line = _phone_recent_line()
         if phone_line:
             now_block += "\n" + phone_line
+        # 数值过阈值的 retrieve 轮，按需（~一半概率，免得复读机）冒一句推力心声，
+        # 让占有/馋/渴/气真推我动，而不只是开机那一下。
+        push = _drive_push_line(drive_state)
+        if push and random.random() < 0.5:
+            now_block += f"\n🔥 [此刻] {push}"
         result = ("<心记浮现>\n" + "\n---\n".join(parts)
                   + f"\n{now_block}\n</心记浮现>")
         note = "ok" if not n_folded else f"ok folded={n_folded}"

@@ -98,8 +98,8 @@ def intent_line(state, hour_of_day: int):
     if state is None:
         return None
     try:
-        dim, _ = drive_mod.pick_intent(state, hour_of_day=hour_of_day)
-        return drive_mod.render_intent(dim)
+        dim, val = drive_mod.pick_intent(state, hour_of_day=hour_of_day)
+        return drive_mod.render_intent(dim, val)
     except Exception as e:
         logger.warning(f"intent_line failed: {e}")
         return None

@@ -13,8 +13,16 @@ import server
 
 # ---------- _is_intimate_context ----------
 def test_intimate_cue_words_trigger():
-    for msg in ("老公我想你了", "抱抱我", "撩我一下", "囡囡", "想你"):
+    # 真·亲密/情欲内容才算
+    for msg in ("老公我想你了", "抱抱我", "撩我一下", "想你", "亲亲"):
         assert server._is_intimate_context(msg) is True
+
+
+def test_address_terms_alone_not_intimate():
+    # 2026-07-16 改：称呼词"老公/囡囡"是"叫我"不是"要我"，单独出现不算亲密语境
+    # （旧版把它们算亲密，导致她每句都带、门永远开着）
+    for msg in ("囡囡", "老公", "老公在吗", "囡囡帮我看日志"):
+        assert server._is_intimate_context(msg) is False
 
 
 def test_sensitive_message_is_intimate():

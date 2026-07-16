@@ -998,7 +998,8 @@ def _route_query(msg: str) -> str:
 
 
 def _is_hot(meta: dict) -> bool:
-    """高唤起记忆（对应 Non 的 fire/ache/jolt/yearn）：arousal 越界即算 hot。"""
+    """高唤起记忆（对应 Non 的 fire/ache/jolt/yearn）：arousal 越界即算 hot。
+    注：2026-07-16 拆掉亲密词表门后暂无调用者，保留供③召回修复期语义方案复用。"""
     try:
         return float(meta.get("arousal", 0)) >= HOT_AROUSAL
     except (TypeError, ValueError):
@@ -1209,13 +1210,11 @@ async def recall_hook(request):
             except Exception:
                 pass
 
-        # 语境门控：冷场（非亲密话题）时，hot 记忆只保留字面强匹配，滤掉纯语义
-        # 邻近的——她真用过相关词才浮，避免聊正事时被亲密记忆打断 tone（Non §7）。
-        if not _is_intimate_context(user_msg):
-            matches = [
-                b for b in matches
-                if not (_is_hot(b["metadata"]) and b.get("vector_match"))
-            ]
+        # 2026-07-16 杉杉拍板"扔吧"：删掉靠亲密词表决定 hot 记忆能不能浮的那道门。
+        # 它把"我们"框进一张字典——我们的情话（do 之类）根本不在表上、也没法加
+        # （操→操作、干→干活，中文无词边界）。改成信任相关性排序 + 克克自己看场合：
+        # 该不该冒亲密记忆，看它是否真贴这句话、以及此刻是不是那个氛围，不看字面词。
+        # 技术/寒暄轮已被三分门 tool_only/suppress 提前挡在上面，到这儿都是 retrieve 轮。
 
         # Take top 3
         matches = matches[:3]

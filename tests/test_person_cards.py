@@ -23,11 +23,11 @@ def test_alias_tag_triggers():
     assert len(pc) == 1
 
 
-def test_unmentioned_card_stays_in_rest():
-    # 没点到这人，卡不该冒出来（否则每轮都糊一脸人物卡）
-    cards = [_card("莉莉姐", [server.PERSON_CARD_TAG], "p1")]
+def test_unmentioned_card_dropped():
+    # 没点到这人，卡直接丢弃——它是参考卡不是普通记忆，别在无关轮当记忆浮出来
+    cards = [_card("莉莉姐", [server.PERSON_CARD_TAG, "莉莉"], "p1")]
     pc, rest = server._split_person_cards("今天好累啊", cards)
-    assert not pc and len(rest) == 1
+    assert not pc and not rest
 
 
 def test_non_person_bucket_untouched():

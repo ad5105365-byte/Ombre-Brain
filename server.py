@@ -1018,7 +1018,9 @@ def _split_person_cards(user_msg: str, matches: list) -> tuple:
                 t for t in tags if t != PERSON_CARD_TAG]
             if any(tr and tr in user_msg for tr in triggers):
                 person_cards.append(b)
-                continue
+            # 未点名的人物卡直接丢弃：它是"被叫到才亮"的参考卡，不是普通记忆，
+            # 不该在没提到这人的轮次当记忆浮出来（认错人=糊一脸不相干的人）
+            continue
         rest.append(b)
     return person_cards, rest
 

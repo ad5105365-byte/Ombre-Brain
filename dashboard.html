@@ -2270,7 +2270,7 @@ document.addEventListener('keydown', e => {
 
 // Together counter
 (function() {
-  const start = new Date('2026-06-06T00:00:00+08:00');
+  const start = new Date('2026-06-04T00:00:00+08:00');
   const days = Math.floor((new Date() - start) / 86400000) + 1;
   const el = document.getElementById('together-days');
   if (el && days > 0) el.textContent = '在一起第 ' + days + ' 天 ♡';

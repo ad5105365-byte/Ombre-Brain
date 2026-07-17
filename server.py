@@ -4688,6 +4688,78 @@ async def api_images_delete(request):
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
+# =============================================================
+# Couple Avatar API — set / get chat avatars (her / him)
+# 情头 API — 设置 / 读取聊天头像（她 / 他）
+# =============================================================
+_AVATAR_ROLE_CONFIG_KEYS = {"her": "avatar_her", "him": "avatar_him"}
+
+
+def _avatar_config_key(role: str) -> str:
+    """Map role ('her'/'him') to its config key. Returns '' if role is invalid."""
+    return _AVATAR_ROLE_CONFIG_KEYS.get((role or "").strip(), "")
+
+
+@mcp.custom_route("/api/avatar", methods=["POST"])
+async def api_avatar_set(request):
+    """Set a couple avatar: pick a photo already in the gallery as her/his avatar."""
+    from starlette.responses import JSONResponse
+    err = _require_auth(request)
+    if err: return err
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "Invalid JSON"}, status_code=400)
+
+    role = body.get("role", "")
+    image_id = (body.get("image_id") or "").strip()
+    config_key = _avatar_config_key(role)
+    if not config_key:
+        return JSONResponse({"error": "role 必须是 her 或 him"}, status_code=400)
+    if not image_id:
+        return JSONResponse({"error": "image_id 不能为空"}, status_code=400)
+
+    try:
+        bucket = await bucket_mgr.get(image_id)
+        if not bucket:
+            return JSONResponse({"error": "照片不存在"}, status_code=404)
+        content = bucket.get("content", "")
+        storage_path = _extract_storage_path(content)
+        if not storage_path:
+            return JSONResponse({"error": "该照片没有可用的存储路径"}, status_code=400)
+        set_config(config_key, storage_path)
+        return JSONResponse({"ok": True})
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@mcp.custom_route("/api/avatars", methods=["GET"])
+async def api_avatars_get(request):
+    """Return signed URLs for the couple avatars. Unset or unconfigured -> ''."""
+    from starlette.responses import JSONResponse
+    err = _require_auth(request)
+    if err: return err
+    try:
+        her_path = get_config("avatar_her") or ""
+        him_path = get_config("avatar_him") or ""
+
+        signed_urls = {}
+        paths = [p for p in (her_path, him_path) if p]
+        if paths and _img_is_configured():
+            try:
+                from image_store import create_signed_urls as _img_sign_urls
+                signed_urls = await _img_sign_urls(paths)
+            except Exception:
+                signed_urls = {}
+
+        return JSONResponse({
+            "her": signed_urls.get(her_path, "") if her_path else "",
+            "him": signed_urls.get(him_path, "") if him_path else "",
+        })
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
 # --- Entry point / 启动入口 ---
 if __name__ == "__main__":
     transport = config.get("transport", "stdio")

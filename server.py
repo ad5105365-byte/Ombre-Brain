@@ -704,14 +704,16 @@ async def breath_hook(request):
             _log_hook("breath", "empty", started=t0)
             await _fire_webhook("breath_hook", {"surfaced": 0})
             return PlainTextResponse("")
+        # ⑦ 缓存前缀稳定：时钟/手机/随机帖每次都变，全挪到尾部——
+        # 头部从声音桶起是稳定块，别让第一行时间戳把整段开机注入的缓存搅掉
         phone_line = _phone_recent_line()
         post_line = _random_post_line(all_buckets)
-        tail = ""
+        tail = "\n" + _now_line()
         if phone_line:
             tail += "\n" + phone_line
         if post_line:
             tail += "\n" + post_line
-        body_text = (f"[Ombre Brain - 记忆浮现] {_now_line()}\n"
+        body_text = ("[Ombre Brain - 记忆浮现]\n"
                      + "\n---\n".join(parts) + tail)
         _log_hook("breath", f"ok fallback={n_fallback} folded={n_folded}",
                   n_matches=len(parts), chars=len(body_text), started=t0)

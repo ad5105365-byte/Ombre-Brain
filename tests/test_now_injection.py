@@ -120,7 +120,10 @@ async def test_breath_hook_carries_time(monkeypatch):
          patch.object(server, "_fire_webhook", AsyncMock()):
         response = await server.breath_hook(None)
     body = response.body.decode("utf-8")
-    assert body.startswith("[Ombre Brain - 记忆浮现] ⏰ 深圳现在：")
+    # ⑦ 缓存前缀稳定：头行不带时钟（稳定前缀），时间挪到尾部但必须还在
+    assert body.startswith("[Ombre Brain - 记忆浮现]")
+    assert "⏰ 深圳现在：" in body
+    assert body.index("⏰ 深圳现在：") > body.index("干净")
 
 
 class _FakeRequest:

@@ -1129,6 +1129,11 @@ function loadMood() {
       const replies = MOODS[m];
       const r = replies[Math.floor(Math.random() * replies.length)];
       localStorage.setItem("kk_mood", JSON.stringify({ date: today, mood: m, reply: r }));
+      // 即时回复是本地的（不花额度），但把这条心情送给克克，他下次跟你说话/主动找你时就带上
+      fetch("/api/checkin", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mood: m }),
+      }).catch(() => {});
       loadMood();
     };
     row.appendChild(b);

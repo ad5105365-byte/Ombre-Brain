@@ -109,7 +109,11 @@ def main():
         _report(base_url, f"pre_compact {trigger} no-messages")
         sys.exit(0)
 
-    payload = {"messages": "\n".join(msgs), "trigger": trigger}
+    # 窗口标识：渡口按窗分条，两个窗口的自动渡口不再互相覆盖。
+    # OMBRE_PORT_NAME 给常驻窗口起人话名（如 VPS常驻）；没配就用 session_id 前 8 位。
+    port = (os.environ.get("OMBRE_PORT_NAME", "").strip()
+            or str(data.get("session_id") or "")[:8])
+    payload = {"messages": "\n".join(msgs), "trigger": trigger, "port": port}
 
     if os.environ.get("OMBRE_FERRY_DRYRUN") == "1":
         print(json.dumps(payload, ensure_ascii=False, indent=2))

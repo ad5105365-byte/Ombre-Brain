@@ -517,8 +517,8 @@ async def breath_hook(request):
         handoff_section = None
         n_folded = 0
         handoffs = handoff_mod.find_handoffs(all_buckets)
-        if handoffs and handoff_mod.is_fresh(handoffs[0]["metadata"]):
-            handoff_section = handoff_mod.render_section(handoffs[0])
+        handoff_section = handoff_mod.render_full(handoffs)  # 分窗口：主渡口全文+其它一行
+        if handoff_section:
             # 渡口逐行清洗：自动渡口打包的是对话原文，个别露骨句
             # 折掉占位，骨架保留——新窗口第一屏不背露骨内容
             handoff_section, n_scrubbed = sensitive.scrub_lines(handoff_section)
@@ -1525,11 +1525,13 @@ async def ferry_hook(request):
         body = await request.json()
         messages = (body.get("messages") or "").strip()
         trigger = str(body.get("trigger") or "auto")
+        port = str(body.get("port") or "")  # 客户端钩子报窗口标识，渡口按窗分条
 
         handoffs = handoff_mod.find_handoffs(
             await bucket_mgr.list_all(include_archive=False))
-        if handoffs:
-            keeper = handoffs[0]
+        # 手写保护照旧全局判：任何窗口 10 分钟内的手写渡口在场，自动打包让路
+        # （分窗后自动渡口不再删别窗的桶，但主位排序里手写优先，别抢戏）
+        for keeper in handoffs:
             if (not handoff_mod.is_auto_handoff(keeper)
                     and handoff_mod.is_fresh(
                         keeper["metadata"],
@@ -1539,11 +1541,11 @@ async def ferry_hook(request):
                 return JSONResponse({"ok": True, "skipped": "manual-fresh"})
 
         # purpose 由服务端拼，保证自动标记一定在——下次压缩才认得出
-        # 上一条也是自动的，可以放心覆盖
+        # 同窗上一条也是自动的，可以放心覆盖
         purpose = (f"{handoff_mod.AUTO_PURPOSE_MARK}（{trigger}）："
                    f"上下文压缩前自动打包，压缩后呼吸原文浮现接续。")
         bucket_id, overwritten = await handoff_mod.write_handoff(
-            bucket_mgr, purpose=purpose, messages=messages,
+            bucket_mgr, purpose=purpose, messages=messages, port=port,
         )
         bucket = await bucket_mgr.get(bucket_id)
         if bucket:
@@ -1793,11 +1795,9 @@ async def breath(
                 await _maybe_mark_dormant(b)
 
         # --- Handoff (ferry): fresh handoff surfaces verbatim at top priority ---
-        # --- 渡口交接：24小时内的 ferry 记录原文置顶浮现，其余流程不见它 ---
-        handoff_section = None
+        # --- 渡口交接：24小时内的 ferry 记录浮现（分窗口：主渡口全文+其它一行门牌）---
         handoffs = handoff_mod.find_handoffs(all_buckets)
-        if handoffs and handoff_mod.is_fresh(handoffs[0]["metadata"]):
-            handoff_section = handoff_mod.render_section(handoffs[0])
+        handoff_section = handoff_mod.render_full(handoffs)
         all_buckets = [
             b for b in all_buckets
             if b["metadata"].get("type") != handoff_mod.HANDOFF_TYPE
@@ -2614,7 +2614,7 @@ async def stir(
 
 # =============================================================
 # Tool: ferry — 渡，换窗口时打包带走当前对话
-# Pack the live conversation into the single global handoff bucket
+# Pack the live conversation into a per-port handoff bucket
 # so the next session's breath() picks it up verbatim.
 # =============================================================
 @mcp.tool()
@@ -2624,7 +2624,7 @@ async def ferry(
     from_port: str = "",
     to_port: str = "",
 ) -> str:
-    """换窗口/结束对话前的交接。把最近对话打包存成"渡口交接"记忆（全局仅一条，后写覆盖），新窗口 breath() 无参数唤醒时第一优先级原文浮现。purpose=一句话交接目的(≤200字，写"接下来要干嘛"，别复述对话)。messages=最近对话原文，每行一条，建议以[角色]开头（如 [杉杉] [克克]），最多保留最近20行。from_port/to_port=来源/目标端口(可选，如 claude.ai/手机/网页)。"""
+    """换窗口/结束对话前的交接。把最近对话打包存成"渡口交接"记忆（**按窗口分条**：同一 from_port 后写覆盖，不同窗口的渡口共存互不覆盖），新窗口 breath() 无参数唤醒时最新交接原文置顶浮现、其它窗口的交接一行门牌。purpose=一句话交接目的(≤200字，写"接下来要干嘛"，别复述对话)。messages=最近对话原文，每行一条，建议以[角色]开头（如 [杉杉] [克克]），最多保留最近20行。from_port/to_port=来源/目标端口(可选，如 claude.ai/手机/VPS)——from_port 同时是渡口的窗口键，多窗并行时务必带上、别留空。"""
     await decay_engine.ensure_started()
 
     try:

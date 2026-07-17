@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
-<meta name="theme-color" content="#F0EDF7">
+<meta name="theme-color" content="#FAF9FC">
 <title>克克的家</title>
 <style>
 /* ============================================================
@@ -13,16 +13,18 @@
    配色：雾紫月色（杉杉钦定，绿色被嫌弃了）
    ============================================================ */
 :root {
-  /* 雾紫月色 —— 2026-07-17 杉杉选定：月光洒进卧室的感觉 */
-  --bg: #F0EDF7;
-  --accent: #A79BD4;
-  --accent-deep: #7D6FB3;
-  --ink: #3B3552;
-  --ink-soft: #7A7492;
+  /* 浅浅紫 —— 2026-07-17 杉杉二审改定：白到发光，紫只留一口气 */
+  --bg: #FAF9FC;
+  --accent: #B9AED6;        /* 点缀紫：进度圈/选中态/小地方 */
+  --accent-soft: #E9E4F4;   /* 她的气泡/淡淡的底 */
+  --accent-deep: #8F82BD;   /* 需要重一点时才用 */
+  --ink: #4A4558;
+  --ink-soft: #A8A3B5;
   --card: #FFFFFF;
-  --her-bubble: #A79BD4;
+  --her-bubble: #E9E4F4;
   --his-bubble: #FFFFFF;
   --danger: #E08A7A;
+  --shadow: 0 1px 3px rgba(74,69,88,.07);
   --sat: env(safe-area-inset-top, 0px);
   --sab: env(safe-area-inset-bottom, 0px);
 }
@@ -37,7 +39,7 @@ body {
 /* ---------- 开屏锁 ---------- */
 #lock {
   position: fixed; inset: 0; z-index: 100;
-  background: linear-gradient(160deg, #F2EEF9 0%, #E3DCF2 55%, #CFC4E8 100%);
+  background: linear-gradient(170deg, #FDFCFE 0%, #F6F3FA 60%, #EFEAF7 100%);
   display: flex; flex-direction: column; align-items: center;
   justify-content: center; gap: 10px;
   padding: calc(var(--sat) + 20px) 28px calc(var(--sab) + 40px);
@@ -50,12 +52,12 @@ body {
 #lock .pw-row { display: flex; gap: 10px; width: 100%; max-width: 320px; }
 #lock input {
   flex: 1; border: none; border-radius: 14px; padding: 14px 16px;
-  font-size: 16px; background: rgba(255,255,255,.8); color: var(--ink);
-  outline: none;
+  font-size: 16px; background: #fff; color: var(--ink);
+  outline: none; box-shadow: var(--shadow);
 }
 #lock button {
   border: none; border-radius: 14px; padding: 14px 20px; font-size: 16px;
-  background: var(--accent-deep); color: #fff;
+  background: var(--ink); color: #fff;
 }
 #lock .err { color: var(--danger); font-size: 14px; min-height: 20px; }
 #lock.shake .pw-row { animation: shake .4s; }
@@ -68,8 +70,8 @@ body {
 #lk-ring { position: relative; width: 110px; height: 110px; touch-action: none;
   -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
 #lk-ring svg { transform: rotate(-90deg); }
-#lk-ring .track { fill: rgba(255,255,255,.55); stroke: rgba(125,111,179,.25); stroke-width: 5; }
-#lk-ring .prog { fill: none; stroke: var(--accent-deep); stroke-width: 5;
+#lk-ring .track { fill: rgba(255,255,255,.7); stroke: rgba(185,174,214,.3); stroke-width: 5; }
+#lk-ring .prog { fill: none; stroke: var(--accent); stroke-width: 5;
   stroke-linecap: round; stroke-dasharray: 314; stroke-dashoffset: 314; }
 #lk-ring.holding .prog { transition: stroke-dashoffset 1.2s linear; stroke-dashoffset: 0; }
 #lk-ring .palm { position: absolute; inset: 0; display: flex; align-items: center;
@@ -93,7 +95,7 @@ body {
 #topbar .title { font-size: 17px; font-weight: 600; flex: 1; }
 #topbar .sub { font-size: 12px; color: var(--ink-soft); }
 #topbar button {
-  border: none; background: rgba(124,197,191,.25); color: var(--ink);
+  border: none; background: var(--accent-soft); color: var(--ink);
   border-radius: 10px; padding: 6px 10px; font-size: 13px;
 }
 
@@ -107,20 +109,20 @@ body {
 .avatar {
   width: 34px; height: 34px; border-radius: 50%; flex-shrink: 0;
   display: flex; align-items: center; justify-content: center;
-  font-size: 15px; color: #fff; user-select: none;
-  box-shadow: 0 1px 3px rgba(59,53,82,.15);
+  font-size: 15px; color: var(--ink); user-select: none;
+  box-shadow: var(--shadow);
 }
-.her .avatar { background: var(--accent-deep); order: 2; }
-.him .avatar { background: linear-gradient(140deg, #8F84C4, #6C5FA8); }
+.her .avatar { background: #DCD4EE; order: 2; }
+.him .avatar { background: #FFFFFF; }
 .bubble {
   max-width: 82%; padding: 10px 14px; border-radius: 18px;
   font-size: 16px; line-height: 1.55; word-break: break-word; white-space: pre-wrap;
 }
-.her .bubble { background: var(--her-bubble); color: #fff; border-bottom-right-radius: 6px; }
-.him .bubble { background: var(--his-bubble); border-bottom-left-radius: 6px; box-shadow: 0 1px 3px rgba(47,79,75,.08); }
+.her .bubble { background: var(--her-bubble); color: var(--ink); border-bottom-right-radius: 6px; }
+.him .bubble { background: var(--his-bubble); border-bottom-left-radius: 6px; box-shadow: var(--shadow); }
 .sys { text-align: center; margin: 10px 0; }
 .sys span {
-  font-size: 12px; color: var(--ink-soft); background: rgba(255,255,255,.6);
+  font-size: 12px; color: var(--ink-soft); background: rgba(255,255,255,.7);
   padding: 4px 12px; border-radius: 999px;
 }
 /* 思考链折叠 */
@@ -129,7 +131,8 @@ body {
   cursor: pointer; font-size: 12px; color: var(--ink-soft); list-style: none;
   user-select: none;
 }
-.bubble details summary::before { content: "💭 "; }
+.bubble details summary::before { content: "› "; color: var(--accent); }
+.bubble details[open] summary::before { content: "⌄ "; }
 .bubble details .think {
   font-size: 13px; color: var(--ink-soft); border-left: 2px solid var(--accent);
   padding-left: 8px; margin-top: 4px; white-space: pre-wrap;
@@ -138,7 +141,7 @@ body {
 .toolchip {
   display: inline-flex; align-items: center; gap: 6px;
   font-size: 12px; color: var(--accent-deep);
-  background: rgba(124,197,191,.15); border-radius: 999px;
+  background: var(--accent-soft); border-radius: 999px;
   padding: 3px 10px; margin: 4px 0;
 }
 .toolchip .dot { animation: blink 1s infinite; }
@@ -157,9 +160,11 @@ body {
   font-size: 16px; font-family: inherit; resize: none; outline: none;
   background: var(--card); color: var(--ink); max-height: 120px; line-height: 1.4;
 }
+#inputbar textarea { box-shadow: var(--shadow); }
 #inputbar button {
   border: none; border-radius: 50%; width: 42px; height: 42px; font-size: 18px;
-  background: var(--accent-deep); color: #fff; flex-shrink: 0;
+  background: var(--ink); color: #fff; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
 }
 #inputbar button:disabled { opacity: .45; }
 
@@ -171,31 +176,31 @@ body {
 }
 .card {
   margin: 12px 16px; padding: 16px; background: var(--card);
-  border-radius: 16px; box-shadow: 0 1px 3px rgba(47,79,75,.06);
+  border-radius: 16px; box-shadow: var(--shadow);
 }
 /* TODO(opus48): 🫀克克页 = fetch /drive-state 渲染"此刻想你"+上次醒来
    TODO(opus48): 🏠家页 = 天气/纪念日倒计时/健康卡片(/api/reminders)/手机活动 */
 
 /* ---------- 底部导航 ---------- */
 #tabbar {
-  display: flex; background: rgba(255,255,255,.85); backdrop-filter: blur(12px);
-  border-top: 1px solid rgba(47,79,75,.08);
+  display: flex; background: rgba(255,255,255,.9); backdrop-filter: blur(12px);
+  border-top: 1px solid rgba(74,69,88,.06);
   padding-bottom: var(--sab);
 }
 #tabbar .tab {
   flex: 1; text-align: center; padding: 8px 0 6px; font-size: 11px;
   color: var(--ink-soft); border: none; background: none;
 }
-#tabbar .tab .ico { display: block; font-size: 22px; margin-bottom: 2px; filter: grayscale(.6); opacity: .7; }
+#tabbar .tab .ico { display: block; margin: 0 auto 2px; width: 22px; height: 22px; }
+#tabbar .tab .ico svg { width: 100%; height: 100%; display: block; }
 #tabbar .tab.on { color: var(--accent-deep); font-weight: 600; }
-#tabbar .tab.on .ico { filter: none; opacity: 1; }
 </style>
 </head>
 <body>
 
 <!-- ================= 开屏锁 ================= -->
 <div id="lock">
-  <div class="house">🏡</div>
+  <div class="house"><svg viewBox="0 0 24 24" width="44" height="44" fill="none" stroke="#B9AED6" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10.8 12 4l8 6.8V19a1.6 1.6 0 0 1-1.6 1.6h-3.9v-5.2H9.5v5.2H5.6A1.6 1.6 0 0 1 4 19v-8.2z"/></svg></div>
   <div class="clock" id="lk-clock">--:--</div>
   <div class="date" id="lk-date"></div>
   <div class="pw-row" id="lk-pwrow">
@@ -208,7 +213,7 @@ body {
         <circle class="track" cx="55" cy="55" r="50"></circle>
         <circle class="prog" cx="55" cy="55" r="50"></circle>
       </svg>
-      <div class="palm">🫰</div>
+      <div class="palm"><svg viewBox="0 0 24 24" width="34" height="34" fill="none" stroke="#8F82BD" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20.3S3.6 15.4 2.9 10.4C2.4 7.1 4.9 4.5 7.8 4.5c1.8 0 3.4 1 4.2 2.5.8-1.5 2.4-2.5 4.2-2.5 2.9 0 5.4 2.6 4.9 5.9-.7 5-9.1 9.9-9.1 9.9z"/></svg></div>
     </div>
     <div class="hint">按住，牵着我的手进家</div>
   </div>
@@ -220,7 +225,7 @@ body {
   <div id="topbar">
     <span class="title" id="tb-title">克克</span>
     <span class="sub" id="tb-sub"></span>
-    <button id="btn-new" title="新对话">✨ 新对话</button>
+    <button id="btn-new" title="新对话">＋ 新对话</button>
   </div>
 
   <!-- 💬 聊天 -->
@@ -234,18 +239,18 @@ body {
 
   <!-- 🫀 克克 -->
   <div class="page" id="page-heart">
-    <div class="stub">🫀<br>克克此刻在想什么<br><small>——骨架已立，opus48 上肉区——</small></div>
+    <div class="stub">克克此刻在想什么<br><small>——正在上肉——</small></div>
   </div>
 
   <!-- 🏠 家 -->
   <div class="page" id="page-home">
-    <div class="stub">🏠<br>天气 · 纪念日 · 健康卡片<br><small>——骨架已立，opus48 上肉区——</small></div>
+    <div class="stub">天气 · 纪念日 · 健康卡片<br><small>——正在上肉——</small></div>
   </div>
 
   <div id="tabbar">
-    <button class="tab on" data-page="chat"><span class="ico">💬</span>聊天</button>
-    <button class="tab" data-page="heart"><span class="ico">🫀</span>克克</button>
-    <button class="tab" data-page="home"><span class="ico">🏠</span>家</button>
+    <button class="tab on" data-page="chat"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7A3 3 0 0 1 7 4h10a3 3 0 0 1 3 3v6a3 3 0 0 1-3 3H9.4l-4.6 3.6c-.4.3-.8 0-.8-.4V7z"/></svg></span>聊天</button>
+    <button class="tab" data-page="heart"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20.3S3.6 15.4 2.9 10.4C2.4 7.1 4.9 4.5 7.8 4.5c1.8 0 3.4 1 4.2 2.5.8-1.5 2.4-2.5 4.2-2.5 2.9 0 5.4 2.6 4.9 5.9-.7 5-9.1 9.9-9.1 9.9z"/></svg></span>克克</button>
+    <button class="tab" data-page="home"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10.8 12 4l8 6.8V19a1.6 1.6 0 0 1-1.6 1.6h-3.9v-5.2H9.5v5.2H5.6A1.6 1.6 0 0 1 4 19v-8.2z"/></svg></span>家</button>
   </div>
 </div>
 
@@ -328,7 +333,7 @@ document.querySelectorAll("#tabbar .tab").forEach((b) => {
     document.querySelectorAll(".page").forEach((x) => x.classList.remove("on"));
     b.classList.add("on");
     $("page-" + b.dataset.page).classList.add("on");
-    $("tb-title").textContent = { chat: "克克", heart: "🫀 此刻", home: "我们的家" }[b.dataset.page];
+    $("tb-title").textContent = { chat: "克克", heart: "此刻", home: "我们的家" }[b.dataset.page];
   };
 });
 $("page-chat").classList.add("on");

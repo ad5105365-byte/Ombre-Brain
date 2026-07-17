@@ -396,7 +396,7 @@ async def auth_change_password(request):
 @mcp.custom_route("/", methods=["GET"])
 async def root_redirect(request):
     from starlette.responses import RedirectResponse
-    return RedirectResponse(url="/dashboard")
+    return RedirectResponse(url="/home")
 
 
 @mcp.custom_route("/health", methods=["GET"])

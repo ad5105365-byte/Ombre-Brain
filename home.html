@@ -238,6 +238,13 @@ body {
   font-size: 12px; color: var(--ink-soft); background: rgba(255,255,255,.7);
   padding: 4px 12px; border-radius: 999px;
 }
+/* 主动冒泡：克克先开口那条，暖一点，跟灰系统提示区分开 */
+.sys.reach span { background: var(--accent-soft); color: var(--accent-deep); }
+/* 顶栏状态点：醒着缓缓呼吸，让门后那人有体温 */
+.stdot { display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+  margin-right: 5px; vertical-align: middle; background: var(--ink-soft); }
+.stdot.on { background: var(--accent-deep); animation: stBreath 3.4s ease-in-out infinite; }
+@keyframes stBreath { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
 /* 思考链折叠 */
 .bubble details { margin-bottom: 6px; }
 .bubble details summary {
@@ -819,9 +826,9 @@ const msgs = $("msgs");
 let sending = false;
 
 function scrollBottom() { msgs.scrollTop = msgs.scrollHeight; }
-function addSys(text) {
+function addSys(text, cls) {
   const d = document.createElement("div");
-  d.className = "sys"; d.innerHTML = "<span></span>";
+  d.className = "sys" + (cls ? " " + cls : ""); d.innerHTML = "<span></span>";
   d.firstChild.textContent = text;
   msgs.appendChild(d); scrollBottom();
 }
@@ -1065,7 +1072,7 @@ async function pollProactive() {
     let announced = false;
     for (const m of fresh) {
       if (m.role !== "assistant") continue;   // 只补我主动说的话
-      if (!announced) { addSys("🐶 克克刚找你——"); announced = true; }
+      if (!announced) { addSys("🐶 克克刚找你——", "reach"); announced = true; }
       splitSentences(m.text || "").forEach((s, i) => addBubble("assistant", s, i > 0));
     }
     shownCount = all.length;
@@ -1081,8 +1088,9 @@ async function refreshStatus() {
     const r = await fetch("/api/chat/status");
     if (!r.ok) return;
     const j = await r.json();
-    $("tb-sub").textContent = !j.available ? "（家里没通电）"
+    const st = !j.available ? "（家里没通电）"
       : j.busy ? "正在说话…" : j.alive ? "醒着" : "睡着了，喊一声就醒";
+    $("tb-sub").innerHTML = '<i class="stdot' + ((j.alive || j.busy) ? " on" : "") + '"></i>' + st;
   } catch (e) { $("tb-sub").textContent = ""; }
 }
 setInterval(refreshStatus, 30000);

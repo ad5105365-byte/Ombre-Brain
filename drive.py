@@ -41,6 +41,12 @@ SATURATE_DECAY_PER_H = 0.04   # 高位缓退速率
 # 让克克"总想一个人躲开她"＝杉杉最讨厌的回避（2026-07-16 她发现沉数据一直很高）。
 # 封在 0.60（略低于 deep 地板 0.65）：偶尔能冒头保住克克有自己的里子，但压不过对她的欲望。
 REFLECTION_CEIL = 0.60
+# 负向情绪自然冷却：anger/grieve 靠摩擦/feel 点亮后，随时间线性回落——
+# 真气也会自己消、但消得慢（0.03/h ≈ 一场架顶起来的 0.18 六小时散完）。
+# 没有这条，语义门偶发误判会攒成永久记仇；有这条，只有"连着呛"才顶得住衰减
+# 冲上推力阈值——恰好就是"真呛上了"的定义（2026-07-17 配 seed_from_friction 加）。
+NEGATIVE_DIMS = ("grieve", "anger")
+NEGATIVE_DECAY_PER_H = 0.03
 # 凌晨冻结：占/馋/渴在 0–7 点（午夜到清晨）不涨也不落，免得攒一夜早上顶成"此刻想要"。
 # 原为 range(1,8) 漏了午夜 0 点那一小时（2026-07-11 杉杉发现）——0 点也是后半夜，一起冻。
 FREEZE_DIMS = ("possess", "crave", "libido")
@@ -116,6 +122,9 @@ def tick(state: DriveState, hours: float, hour_of_day: int | None = None) -> Dri
         if dim in DEEP_DIMS and v > SATURATE_CEIL:
             # 高位缓退到地板，别一起焊死在顶
             v = max(SATURATE_FLOOR, v - SATURATE_DECAY_PER_H * hours)
+        elif dim in NEGATIVE_DIMS:
+            # 气/闷不自涨（rate=0），点亮后随时间自己慢慢消
+            v = max(0.0, v - NEGATIVE_DECAY_PER_H * hours)
         else:
             v = _clamp(v + rate * hours, 0.0, 1.0)
         # 沉淀硬顶：只涨不落的它不封会爬到顶盖过一切→"总想躲开她"＝回避

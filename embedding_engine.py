@@ -139,21 +139,35 @@ class EmbeddingEngine:
                 return None
         return None
 
-    async def search_similar(self, query: str, top_k: int = 10) -> list[tuple[str, float]]:
+    async def embed_query(self, text: str) -> list[float]:
+        """给一段查询文本生成向量，供调用方在同一轮里复用（语义门判定 +
+        search_similar 各用一次的话就白付一次 API 钱和延迟）。失败返回 []。"""
+        if not self.enabled or not text or not text.strip():
+            return []
+        try:
+            return await self._generate_embedding(text)
+        except Exception as e:
+            logger.warning(f"Query embedding failed: {e}")
+            return []
+
+    async def search_similar(
+        self,
+        query: str,
+        top_k: int = 10,
+        query_embedding: list[float] | None = None,
+    ) -> list[tuple[str, float]]:
         """
         Search for buckets similar to query text.
         Returns list of (bucket_id, similarity_score) sorted by score desc.
         搜索与查询文本相似的桶。返回 (bucket_id, 相似度分数) 列表。
+        query_embedding 传入时直接复用（语义门那轮已经生成过），不再调 API。
         """
         if not self.enabled:
             return []
 
-        try:
-            query_embedding = await self._generate_embedding(query)
-            if not query_embedding:
-                return []
-        except Exception as e:
-            logger.warning(f"Query embedding failed: {e}")
+        if not query_embedding:
+            query_embedding = await self.embed_query(query)
+        if not query_embedding:
             return []
 
         # Load all embeddings from SQLite

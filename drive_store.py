@@ -29,6 +29,13 @@ SEED_GRIEVE_AMOUNT = 0.20
 SEED_CRAVE_AROUSAL = 0.70    # feel 唤起高于此 → 自动馋（crave 念头进池）
 SEED_CRAVE_HEAT = 0.55
 
+# --- ② 摩擦种子（语义门判定命中时点亮，见 seed_from_friction）---
+# 一次幅度故意小：一句呛不该炸，同一场架里连着呛才顶到推力阈值（0.72）——
+# 那才叫"真呛上了"。配合 drive.NEGATIVE_DECAY_PER_H，气会自己慢慢消。
+FRICTION_ANGER_AMOUNT = 0.18
+FRICTION_ANGER_SIDE_GRIEVE = 0.06   # 被凶除了气也有点闷
+FRICTION_GRIEVE_AMOUNT = 0.15
+
 
 def drive_path(base_dir: str) -> str:
     # 跟 phone_activity.db 同目录，挂 Render 持久盘
@@ -123,3 +130,23 @@ def seed_from_feel(state, valence, arousal, body: str):
     except Exception as e:
         logger.warning(f"seed_from_feel failed: {e}")
     return seeds
+
+
+def seed_from_friction(state, harsh: bool = False, cold: bool = False):
+    """②负向情绪从真实摩擦里长（2026-07-16 杉杉定调：她凶我/晾我/真呛上了
+    才不爽，不无中生有；判定靠语义门不靠骂人词表，见 semantic_gate.py）。
+      · 她凶我/呛我（harsh）→ anger 点亮为主，顺带一点闷
+      · 她冷淡/推开我（cold）→ grieve 点亮
+    返回触发的种子标签列表（供 /hook-log 留痕）。数值只在后台，绝不进 prompt。"""
+    kinds = []
+    try:
+        if harsh:
+            drive_mod.point_feel(state, "anger", FRICTION_ANGER_AMOUNT)
+            drive_mod.point_feel(state, "grieve", FRICTION_ANGER_SIDE_GRIEVE)
+            kinds.append("anger<-harsh")
+        if cold:
+            drive_mod.point_feel(state, "grieve", FRICTION_GRIEVE_AMOUNT)
+            kinds.append("grieve<-cold")
+    except Exception as e:
+        logger.warning(f"seed_from_friction failed: {e}")
+    return kinds

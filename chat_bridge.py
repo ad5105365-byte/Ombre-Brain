@@ -264,6 +264,7 @@ class ChatBridge:
             "busy": self.busy(),
             "session_id": self.load_session(),
             "idle_seconds": (time.time() - self.last_used) if self.last_used else None,
+            "woke_at": getattr(self, "woke_at", None),  # 上次出生/resume 的 unix 时刻
         }
 
     # --- 进程生命周期 ---
@@ -298,6 +299,7 @@ class ChatBridge:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
+        self.woke_at = time.time()  # 记一次醒来，供"上次醒来"显示
         asyncio.ensure_future(self._drain_stderr(self.proc))
         logger.info("chat: claude 进程出生 pid=%s resume=%s", self.proc.pid, resume_id or "(新会话)")
 

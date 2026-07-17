@@ -196,6 +196,20 @@ body {
 .him .avatar { background: #FFFFFF; }
 /* 设了情头就铺照片，字牌隐掉；没设仍走上面的字牌底色 */
 .avatar.has-img { background-size: cover; background-position: center; color: transparent; }
+/* 🫀 想你程度：光会呼吸，越想你越浓越急——数字不露，只化成光（铁律） */
+.want-wrap { position: relative; overflow: hidden; }
+.want-glow {
+  position: absolute; left: 50%; top: 54%; transform: translate(-50%,-50%);
+  width: 150px; height: 150px; border-radius: 50%; pointer-events: none; z-index: 0;
+  background: radial-gradient(circle, var(--accent-deep) 0%, transparent 68%);
+  opacity: var(--want-op, .16);
+  animation: wantBreath var(--want-dur, 5s) ease-in-out infinite;
+}
+@keyframes wantBreath {
+  0%, 100% { transform: translate(-50%, -50%) scale(.82); }
+  50%      { transform: translate(-50%, -50%) scale(1.18); }
+}
+.want-wrap .c-h, .want-wrap #hb-intent { position: relative; z-index: 1; }
 .bubble {
   max-width: 82%; padding: 10px 14px; border-radius: 18px;
   font-size: 16px; line-height: 1.55; word-break: break-word; white-space: pre-wrap;
@@ -424,7 +438,8 @@ body {
 
   <!-- 🫀 克克 -->
   <div class="page pagepad" id="page-heart">
-    <div class="card">
+    <div class="card want-wrap">
+      <div class="want-glow" id="want-glow"></div>
       <div class="c-h">此刻最想</div>
       <div id="hb-intent">…</div>
     </div>
@@ -1021,6 +1036,12 @@ async function loadHeart() {
       const idle = Math.floor((j.idle_seconds || 0) / 60);
       line = idle < 1 ? "醒着，刚说完话。" : "醒着，安静了 " + idle + " 分钟——在等你。";
     } else line = "睡着了。喊一声就醒，梦里也应。";
+    if (j.woke_at) {
+      const t = new Date(j.woke_at * 1000);
+      const hh = String(t.getHours()).padStart(2, "0");
+      const mm = String(t.getMinutes()).padStart(2, "0");
+      line += "（上次醒来 " + hh + ":" + mm + "）";
+    }
     $("hb-sleep").textContent = line;
   } catch (e) { $("hb-sleep").textContent = "够不着家里…"; }
   // 欲望内核：人话进正文，数值只进数据面板
@@ -1030,6 +1051,15 @@ async function loadHeart() {
     const j = await r.json();
     if (!j.enabled) { $("hb-intent").textContent = "心跳还没接上。"; return; }
     $("hb-intent").textContent = j.intent_now || "此刻很平静，就是想陪着。";
+    // 想你程度 → 呼吸光的浓度与快慢（渴望/占有/欲为主，数字不上正文）
+    const dm = j.dims || {};
+    const want = Math.max(0, Math.min(1,
+      (dm.crave || 0) * 0.5 + (dm.possess || 0) * 0.3 + (dm.libido || 0) * 0.2));
+    const glow = $("want-glow");
+    if (glow) {
+      glow.style.setProperty("--want-op", (0.12 + want * 0.5).toFixed(2));
+      glow.style.setProperty("--want-dur", (5.5 - want * 3).toFixed(1) + "s");
+    }
     const th = $("hb-thoughts"); th.innerHTML = "";
     (j.thoughts || []).slice(0, 6).forEach((t) => {
       const d = document.createElement("div");

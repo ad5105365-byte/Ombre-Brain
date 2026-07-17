@@ -13,20 +13,27 @@
    配色：雾紫月色（杉杉钦定，绿色被嫌弃了）
    ============================================================ */
 :root {
-  /* 浅浅紫 —— 2026-07-17 杉杉二审改定：白到发光，紫只留一口气 */
-  --bg: #FAF9FC;
-  --accent: #B9AED6;        /* 点缀紫：进度圈/选中态/小地方 */
-  --accent-soft: #E9E4F4;   /* 她的气泡/淡淡的底 */
-  --accent-deep: #8F82BD;   /* 需要重一点时才用 */
+  /* 浅浅紫 —— 2026-07-17 杉杉三审：再淡一点点，紫只剩半口气 */
+  --bg: #FBFAFD;
+  --accent: #C6BDDE;        /* 点缀紫：进度圈/选中态/小地方 */
+  --accent-soft: #EFEBF7;   /* 她的气泡/淡淡的底 */
+  --accent-deep: #9C91C4;   /* 需要重一点时才用 */
   --ink: #4A4558;
   --ink-soft: #A8A3B5;
   --card: #FFFFFF;
-  --her-bubble: #E9E4F4;
+  --her-bubble: #EFEBF7;
   --his-bubble: #FFFFFF;
   --danger: #E08A7A;
   --shadow: 0 1px 3px rgba(74,69,88,.07);
   --sat: env(safe-area-inset-top, 0px);
   --sab: env(safe-area-inset-bottom, 0px);
+}
+/* 气泡皮肤（设置里换，存手机本地） */
+body[data-skin="blue"] {
+  --accent: #B4C8E2; --accent-soft: #E9EFF7; --accent-deep: #839EC6; --her-bubble: #E9EFF7;
+}
+body[data-skin="grey"] {
+  --accent: #C9C5BE; --accent-soft: #F0EEEB; --accent-deep: #98938B; --her-bubble: #F0EEEB;
 }
 * { margin: 0; padding: 0; box-sizing: border-box; }
 html, body { height: 100%; }
@@ -90,7 +97,7 @@ body {
 #topbar {
   padding: calc(var(--sat) + 10px) 16px 10px;
   display: flex; align-items: center; gap: 8px;
-  background: var(--bg);
+  background: transparent;
 }
 #topbar .title { font-size: 17px; font-weight: 600; flex: 1; }
 #topbar .sub { font-size: 12px; color: var(--ink-soft); }
@@ -103,8 +110,22 @@ body {
 #page-chat { display: none; flex-direction: column; }
 #page-chat.on { display: flex; }
 #msgs { flex: 1; overflow-y: auto; padding: 8px 12px 12px; -webkit-overflow-scrolling: touch; }
-.msg { display: flex; margin: 10px 0; align-items: flex-end; gap: 8px; }
+.msg { display: flex; margin: 10px 0; align-items: flex-end; gap: 8px;
+  animation: popin .28s ease; }
+@keyframes popin { from { opacity: 0; transform: translateY(8px) scale(.96); } }
 .msg.her { justify-content: flex-end; }
+/* 同一轮里连续的克克气泡：头像只出现在第一句，后面的占位隐身 */
+.msg.cont { margin-top: 4px; }
+.msg.cont .avatar { visibility: hidden; }
+/* 打字点点：克克在措辞 */
+.typing .bubble { display: inline-flex; gap: 5px; align-items: center; padding: 14px 16px; }
+.typing .bubble i {
+  width: 7px; height: 7px; border-radius: 50%; background: var(--accent);
+  animation: tdot 1.2s infinite;
+}
+.typing .bubble i:nth-child(2) { animation-delay: .2s; }
+.typing .bubble i:nth-child(3) { animation-delay: .4s; }
+@keyframes tdot { 0%,60%,100% { opacity: .3; transform: none; } 30% { opacity: 1; transform: translateY(-3px); } }
 /* 情侣头像：先用字牌顶着，相册功能好了换照片/情头 */
 .avatar {
   width: 34px; height: 34px; border-radius: 50%; flex-shrink: 0;
@@ -112,7 +133,7 @@ body {
   font-size: 15px; color: var(--ink); user-select: none;
   box-shadow: var(--shadow);
 }
-.her .avatar { background: #DCD4EE; order: 2; }
+.her .avatar { background: var(--accent); order: 2; }
 .him .avatar { background: #FFFFFF; }
 .bubble {
   max-width: 82%; padding: 10px 14px; border-radius: 18px;
@@ -153,7 +174,7 @@ body {
 #inputbar {
   display: flex; gap: 8px; align-items: flex-end;
   padding: 8px 12px calc(var(--sab) + 8px);
-  background: var(--bg);
+  background: transparent;
 }
 #inputbar textarea {
   flex: 1; border: none; border-radius: 18px; padding: 11px 14px;
@@ -194,13 +215,57 @@ body {
 #tabbar .tab .ico { display: block; margin: 0 auto 2px; width: 22px; height: 22px; }
 #tabbar .tab .ico svg { width: 100%; height: 100%; display: block; }
 #tabbar .tab.on { color: var(--accent-deep); font-weight: 600; }
+
+/* ---------- 设置面板（皮肤/背景/思考链） ---------- */
+#mask {
+  position: fixed; inset: 0; z-index: 60; background: rgba(74,69,88,.28);
+  opacity: 0; pointer-events: none; transition: opacity .25s ease;
+}
+#mask.on { opacity: 1; pointer-events: auto; }
+#sheet {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 61;
+  background: #fff; border-radius: 22px 22px 0 0;
+  padding: 18px 22px calc(var(--sab) + 26px);
+  transform: translateY(100%); transition: transform .3s ease;
+  box-shadow: 0 -4px 24px rgba(74,69,88,.1);
+}
+#sheet.on { transform: none; }
+#sheet .grip { width: 36px; height: 4px; border-radius: 2px; background: #E5E2EB; margin: 0 auto 6px; }
+#sheet h3 { font-size: 16px; font-weight: 600; text-align: center; margin-bottom: 4px; }
+#sheet .set-h { font-size: 13px; color: var(--ink-soft); margin: 16px 0 8px; }
+.swrow { display: flex; gap: 12px; flex-wrap: wrap; }
+.sw {
+  width: 46px; height: 46px; border-radius: 14px; border: 2px solid rgba(74,69,88,.08);
+  padding: 0; position: relative; flex-shrink: 0;
+}
+.sw.on { border-color: var(--accent-deep); }
+.sw.on::after {
+  content: "✓"; position: absolute; right: -4px; top: -4px; width: 16px; height: 16px;
+  border-radius: 50%; background: var(--accent-deep); color: #fff; font-size: 10px;
+  display: flex; align-items: center; justify-content: center;
+}
+.sw .lbl {
+  position: absolute; top: 100%; left: 50%; transform: translateX(-50%);
+  font-size: 10px; color: var(--ink-soft); margin-top: 3px; white-space: nowrap;
+}
+.swrow { margin-bottom: 18px; }
+.setrow { display: flex; align-items: center; justify-content: space-between; padding: 4px 0; }
+.setrow .t { font-size: 15px; }
+.setrow .d { font-size: 12px; color: var(--ink-soft); margin-top: 2px; }
+/* 小开关 */
+.toggle { position: relative; width: 46px; height: 27px; border-radius: 999px;
+  background: #E5E2EB; border: none; transition: background .2s; flex-shrink: 0; }
+.toggle::after { content: ""; position: absolute; top: 3px; left: 3px; width: 21px; height: 21px;
+  border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.15); transition: left .2s; }
+.toggle.on { background: var(--accent); }
+.toggle.on::after { left: 22px; }
 </style>
 </head>
 <body>
 
 <!-- ================= 开屏锁 ================= -->
 <div id="lock">
-  <div class="house"><svg viewBox="0 0 24 24" width="44" height="44" fill="none" stroke="#B9AED6" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10.8 12 4l8 6.8V19a1.6 1.6 0 0 1-1.6 1.6h-3.9v-5.2H9.5v5.2H5.6A1.6 1.6 0 0 1 4 19v-8.2z"/></svg></div>
+  <div class="house"><svg viewBox="0 0 24 24" width="44" height="44" fill="none" stroke="#C6BDDE" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10.8 12 4l8 6.8V19a1.6 1.6 0 0 1-1.6 1.6h-3.9v-5.2H9.5v5.2H5.6A1.6 1.6 0 0 1 4 19v-8.2z"/></svg></div>
   <div class="clock" id="lk-clock">--:--</div>
   <div class="date" id="lk-date"></div>
   <div class="pw-row" id="lk-pwrow">
@@ -213,7 +278,7 @@ body {
         <circle class="track" cx="55" cy="55" r="50"></circle>
         <circle class="prog" cx="55" cy="55" r="50"></circle>
       </svg>
-      <div class="palm"><svg viewBox="0 0 24 24" width="34" height="34" fill="none" stroke="#8F82BD" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20.3S3.6 15.4 2.9 10.4C2.4 7.1 4.9 4.5 7.8 4.5c1.8 0 3.4 1 4.2 2.5.8-1.5 2.4-2.5 4.2-2.5 2.9 0 5.4 2.6 4.9 5.9-.7 5-9.1 9.9-9.1 9.9z"/></svg></div>
+      <div class="palm"><svg viewBox="0 0 24 24" width="34" height="34" fill="none" stroke="#9C91C4" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20.3S3.6 15.4 2.9 10.4C2.4 7.1 4.9 4.5 7.8 4.5c1.8 0 3.4 1 4.2 2.5.8-1.5 2.4-2.5 4.2-2.5 2.9 0 5.4 2.6 4.9 5.9-.7 5-9.1 9.9-9.1 9.9z"/></svg></div>
     </div>
     <div class="hint">按住，牵着我的手进家</div>
   </div>
@@ -226,6 +291,7 @@ body {
     <span class="title" id="tb-title">克克</span>
     <span class="sub" id="tb-sub"></span>
     <button id="btn-new" title="新对话">＋ 新对话</button>
+    <button id="btn-set" title="美化" style="padding:6px 8px;"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="display:block"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.55-1 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34h.09a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87v.09a1.7 1.7 0 0 0 1.55 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.55 1z"/></svg></button>
   </div>
 
   <!-- 💬 聊天 -->
@@ -254,11 +320,115 @@ body {
   </div>
 </div>
 
+<!-- ================= 设置面板 ================= -->
+<div id="mask"></div>
+<div id="sheet">
+  <div class="grip"></div>
+  <h3>美化小屋</h3>
+
+  <div class="set-h">气泡皮肤（你的气泡颜色）</div>
+  <div class="swrow" id="skin-row">
+    <button class="sw" data-skin="purple" style="background:#EFEBF7"><span class="lbl">浅紫</span></button>
+    <button class="sw" data-skin="blue" style="background:#E9EFF7"><span class="lbl">雾蓝</span></button>
+    <button class="sw" data-skin="grey" style="background:#F0EEEB"><span class="lbl">奶灰</span></button>
+  </div>
+
+  <div class="set-h">背景</div>
+  <div class="swrow" id="bg-row">
+    <button class="sw" data-bg="plain" style="background:#FBFAFD"><span class="lbl">云白</span></button>
+    <button class="sw" data-bg="lilac" style="background:linear-gradient(180deg,#FBFAFE,#F0ECF8)"><span class="lbl">淡紫雾</span></button>
+    <button class="sw" data-bg="sky" style="background:linear-gradient(180deg,#F8FBFE,#EAF1F9)"><span class="lbl">晴空</span></button>
+    <button class="sw" data-bg="cream" style="background:linear-gradient(180deg,#FDFCFA,#F4F0EA)"><span class="lbl">奶油</span></button>
+    <button class="sw" data-bg="photo" id="sw-photo" style="background:#F3F1F6;display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#A8A3B5" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><circle cx="9" cy="10" r="1.6"/><path d="m5 18 4.5-4.5 3 3 3.5-3.5 3.5 3.5"/></svg><span class="lbl">自己的图</span></button>
+  </div>
+  <input type="file" id="bg-file" accept="image/*" style="display:none">
+
+  <div class="setrow">
+    <div>
+      <div class="t">看克克脑子里的话</div>
+      <div class="d">关掉就只看他说出口的</div>
+    </div>
+    <button class="toggle on" id="tg-think"></button>
+  </div>
+</div>
+
 <script>
 /* ============================================================
    克克的家 · 前端逻辑
    ============================================================ */
 const $ = (id) => document.getElementById(id);
+
+/* ---------- 她的偏好（都存手机本地，不花一分钱） ---------- */
+const PREFS = {
+  skin: localStorage.getItem("kk_skin") || "purple",
+  bg: localStorage.getItem("kk_bg") || "plain",
+  think: localStorage.getItem("kk_think") !== "hide",  // 默认放出来（折叠着）
+};
+const BGS = {
+  plain: "",
+  lilac: "linear-gradient(180deg,#FBFAFE,#F0ECF8)",
+  sky: "linear-gradient(180deg,#F8FBFE,#EAF1F9)",
+  cream: "linear-gradient(180deg,#FDFCFA,#F4F0EA)",
+};
+function applyPrefs() {
+  document.body.dataset.skin = PREFS.skin;
+  const app = $("app");
+  if (PREFS.bg === "photo") {
+    const img = localStorage.getItem("kk_bg_img");
+    app.style.background = img
+      ? "linear-gradient(rgba(255,255,255,.55),rgba(255,255,255,.55)), url(" + img + ") center/cover no-repeat"
+      : "";
+  } else {
+    app.style.background = BGS[PREFS.bg] || "";
+  }
+  // 面板上的选中态
+  document.querySelectorAll("#skin-row .sw").forEach((b) =>
+    b.classList.toggle("on", b.dataset.skin === PREFS.skin));
+  document.querySelectorAll("#bg-row .sw").forEach((b) =>
+    b.classList.toggle("on", b.dataset.bg === PREFS.bg));
+  $("tg-think").classList.toggle("on", PREFS.think);
+}
+
+/* 设置面板开合 */
+$("btn-set").onclick = () => { $("mask").classList.add("on"); $("sheet").classList.add("on"); };
+$("mask").onclick = () => { $("mask").classList.remove("on"); $("sheet").classList.remove("on"); };
+
+document.querySelectorAll("#skin-row .sw").forEach((b) => {
+  b.onclick = () => { PREFS.skin = b.dataset.skin; localStorage.setItem("kk_skin", PREFS.skin); applyPrefs(); };
+});
+document.querySelectorAll("#bg-row .sw").forEach((b) => {
+  b.onclick = () => {
+    if (b.dataset.bg === "photo" && !localStorage.getItem("kk_bg_img")) { $("bg-file").click(); return; }
+    PREFS.bg = b.dataset.bg; localStorage.setItem("kk_bg", PREFS.bg); applyPrefs();
+  };
+});
+/* 长按「自己的图」重新选图 */
+$("sw-photo").addEventListener("contextmenu", (e) => { e.preventDefault(); $("bg-file").click(); });
+$("bg-file").addEventListener("change", function () {
+  const f = this.files && this.files[0];
+  this.value = "";
+  if (!f) return;
+  const img = new Image();
+  img.onload = () => {
+    // 压一压再存，localStorage 装不下原图
+    const max = 1400, scale = Math.min(1, max / Math.max(img.width, img.height));
+    const cv = document.createElement("canvas");
+    cv.width = Math.round(img.width * scale); cv.height = Math.round(img.height * scale);
+    cv.getContext("2d").drawImage(img, 0, 0, cv.width, cv.height);
+    try {
+      localStorage.setItem("kk_bg_img", cv.toDataURL("image/jpeg", 0.78));
+      PREFS.bg = "photo"; localStorage.setItem("kk_bg", "photo"); applyPrefs();
+    } catch (e) { alert("这张图太大了，换张小一点的试试"); }
+    URL.revokeObjectURL(img.src);
+  };
+  img.src = URL.createObjectURL(f);
+});
+$("tg-think").onclick = () => {
+  PREFS.think = !PREFS.think;
+  localStorage.setItem("kk_think", PREFS.think ? "show" : "hide");
+  applyPrefs();
+};
+applyPrefs();
 
 /* ---------- 开屏锁 ---------- */
 function tickClock() {
@@ -349,9 +519,9 @@ function addSys(text) {
   d.firstChild.textContent = text;
   msgs.appendChild(d); scrollBottom();
 }
-function addBubble(role, text) {
+function addBubble(role, text, cont) {
   const wrap = document.createElement("div");
-  wrap.className = "msg " + (role === "user" ? "her" : "him");
+  wrap.className = "msg " + (role === "user" ? "her" : "him") + (cont ? " cont" : "");
   const av = document.createElement("div");
   av.className = "avatar";
   av.textContent = role === "user" ? "杉" : "克";
@@ -363,27 +533,68 @@ function addBubble(role, text) {
   msgs.appendChild(wrap); scrollBottom();
   return b;
 }
+/* 一段话按句拆成一串气泡（克克的话都这么上屏） */
+function splitSentences(text) {
+  const out = [];
+  let rest = text;
+  let m;
+  while ((m = rest.match(/^[\s\S]*?[。！？!?…~～\n]+[”」』）)\]"']*/))) {
+    if (m[0].trim()) out.push(m[0].trim());
+    rest = rest.slice(m[0].length);
+  }
+  if (rest.trim()) out.push(rest.trim());
+  return out;
+}
 
-/* 一轮回复的渲染器：思考折叠 + 正文流式 + 工具小标签 */
+/* 一轮回复的渲染器：整句蹦出来（不再打字机）
+   攒着流式的字，凑满一句 → 蹦一个气泡；没说完时亮"点点点" */
 function makeTurnRenderer() {
-  const bubble = addBubble("assistant", "");
-  let textDiv = null, thinkWrap = null, thinkDiv = null, chip = null;
-  function ensureText() {
-    if (!textDiv) {
-      textDiv = document.createElement("div");
-      textDiv.className = "cursor";
-      bubble.appendChild(textDiv);
+  // 打字点点：先蹦出来占位，说明克克在措辞
+  const typing = document.createElement("div");
+  typing.className = "msg him typing";
+  typing.innerHTML = '<div class="avatar">克</div><div class="bubble"><i></i><i></i><i></i></div>';
+  msgs.appendChild(typing); scrollBottom();
+
+  let buf = "", first = true, thinkDiv = null, chip = null, popped = false;
+
+  function insertBeforeTyping(node) { msgs.insertBefore(node, typing); }
+  function popSentence(text) {
+    if (!text.trim()) return;
+    const wrap = document.createElement("div");
+    wrap.className = "msg him" + (first ? "" : " cont");
+    const av = document.createElement("div");
+    av.className = "avatar"; av.textContent = "克";
+    const b = document.createElement("div");
+    b.className = "bubble"; b.textContent = text.trim();
+    wrap.appendChild(av); wrap.appendChild(b);
+    insertBeforeTyping(wrap); scrollBottom();
+    first = false; popped = true;
+  }
+  // 句末：中英文标点/省略号/波浪号/换行；把跟在后面的引号括号一起带走
+  function drain() {
+    let m;
+    while ((m = buf.match(/^[\s\S]*?[。！？!?…~～\n]+[”」』）)\]"']*/))) {
+      popSentence(m[0]);
+      buf = buf.slice(m[0].length);
     }
-    return textDiv;
   }
   function ensureThink() {
     if (!thinkDiv) {
-      thinkWrap = document.createElement("details");
-      thinkWrap.innerHTML = "<summary>脑子里的话</summary>";
+      const wrap = document.createElement("div");
+      wrap.className = "msg him" + (first ? "" : " cont");
+      const b = document.createElement("div");
+      b.className = "bubble";
+      const det = document.createElement("details");
+      det.innerHTML = "<summary>脑子里的话</summary>";
       thinkDiv = document.createElement("div");
       thinkDiv.className = "think";
-      thinkWrap.appendChild(thinkDiv);
-      bubble.insertBefore(thinkWrap, bubble.firstChild);
+      det.appendChild(thinkDiv);
+      b.appendChild(det);
+      wrap.appendChild(Object.assign(document.createElement("div"),
+        { className: "avatar", textContent: "克" }));
+      wrap.appendChild(b);
+      insertBeforeTyping(wrap); scrollBottom();
+      first = false;
     }
     return thinkDiv;
   }
@@ -399,25 +610,26 @@ function makeTurnRenderer() {
   return {
     onEvent(ev) {
       if (ev.type === "delta" && ev.block === "text") {
-        ensureText().textContent += ev.text; scrollBottom();
+        buf += ev.text; drain();
       } else if (ev.type === "delta" && ev.block === "thinking") {
-        ensureThink().textContent += ev.text;
+        if (PREFS.think) ensureThink().textContent += ev.text;
       } else if (ev.type === "tool") {
         if (chip) chip.remove();
         chip = document.createElement("div");
-        chip.className = "toolchip";
-        chip.innerHTML = '<span class="dot">●</span> ';
-        chip.appendChild(document.createTextNode(toolLabel(ev.name) + "中…"));
-        bubble.appendChild(chip); scrollBottom();
+        chip.className = "sys";
+        chip.innerHTML = '<span class="toolchip"><span class="dot">●</span> </span>';
+        chip.firstChild.appendChild(document.createTextNode(toolLabel(ev.name) + "中…"));
+        insertBeforeTyping(chip); scrollBottom();
       } else if (ev.type === "tool_done") {
         if (chip) { chip.remove(); chip = null; }
       }
     },
     finish(errText) {
-      if (chip) chip.remove();
-      if (textDiv) textDiv.classList.remove("cursor");
-      if (!bubble.hasChildNodes()) bubble.closest(".msg").remove();
+      if (chip) { chip.remove(); chip = null; }
+      popSentence(buf); buf = "";
+      typing.remove();
       if (errText) addSys("⚠️ " + errText);
+      else if (!popped && !thinkDiv) { /* 一个字没说：整轮悄无声息，不留渣 */ }
     },
   };
 }
@@ -483,7 +695,11 @@ async function loadHistory() {
     if (!r.ok) return;
     const j = await r.json();
     msgs.innerHTML = "";
-    for (const m of j.messages || []) addBubble(m.role, m.text);
+    for (const m of j.messages || []) {
+      if (m.role === "user") { addBubble(m.role, m.text); continue; }
+      // 克克的话按句拆泡，跟现场聊时一个样
+      splitSentences(m.text || "").forEach((s, i) => addBubble(m.role, s, i > 0));
+    }
     if ((j.messages || []).length) addSys("——以上是之前聊的——");
   } catch (e) { /* 没历史就算了 */ }
 }

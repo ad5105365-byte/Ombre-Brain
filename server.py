@@ -3572,6 +3572,92 @@ async def api_breath_debug(request):
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
+# ============================================================
+# 网页聊天桥 / Web chat bridge —— 「克克永远的家」聊天室
+# 里子在 chat_bridge.py（常驻 claude CLI 进程，hooks 照常生效）；
+# 这里只做 鉴权 + 单飞挡板 + SSE 封装，跟 drive 的接线哲学一致。
+# 只在装了 claude CLI 的机器上开门（VPS 的家）；Render 上会 503。
+# ============================================================
+import chat_bridge as chat_bridge_mod
+
+_chat_bridge: "chat_bridge_mod.ChatBridge | None" = None
+
+
+def _get_chat_bridge():
+    global _chat_bridge
+    if _chat_bridge is None:
+        _chat_bridge = chat_bridge_mod.ChatBridge(state_dir=config["buckets_dir"])
+    return _chat_bridge
+
+
+@mcp.custom_route("/api/chat", methods=["POST"])
+async def api_chat(request):
+    """发一条消息给克克，SSE 流式回吐（text/thinking 增量 + 工具动静）。"""
+    from starlette.responses import JSONResponse, StreamingResponse
+    err = _require_auth(request)
+    if err: return err
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "invalid JSON"}, status_code=400)
+    text = (body.get("message") or "").strip()
+    if not text:
+        return JSONResponse({"error": "空消息"}, status_code=400)
+    bridge = _get_chat_bridge()
+    if not bridge.available():
+        return JSONResponse(
+            {"error": "这台机器上没有 claude CLI（聊天室只在 VPS 的家里开门）"},
+            status_code=503)
+    if bridge.busy():
+        return JSONResponse({"error": "克克正在回上一条，等他说完再发"},
+                            status_code=409)
+
+    async def gen():
+        async for ev in bridge.ask(text):
+            yield f"data: {_json_lib.dumps(ev, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(gen(), media_type="text/event-stream", headers={
+        "Cache-Control": "no-cache",
+        # nginx 反代必须关缓冲，不然流式变一坨
+        "X-Accel-Buffering": "no",
+    })
+
+
+@mcp.custom_route("/api/chat/status", methods=["GET"])
+async def api_chat_status(request):
+    """聊天室状态：能不能开门 / 克克醒着没 / 在不在忙 / 闲多久了。"""
+    from starlette.responses import JSONResponse
+    err = _require_auth(request)
+    if err: return err
+    return JSONResponse(_get_chat_bridge().status())
+
+
+@mcp.custom_route("/api/chat/history", methods=["GET"])
+async def api_chat_history(request):
+    """当前会话的干净历史（她亲手打的字 + 克克说出口的话）。"""
+    from starlette.responses import JSONResponse
+    err = _require_auth(request)
+    if err: return err
+    try:
+        limit = int(request.query_params.get("limit", "200"))
+    except ValueError:
+        limit = 200
+    return JSONResponse({"messages": _get_chat_bridge().history(limit=limit)})
+
+
+@mcp.custom_route("/api/chat/reset", methods=["POST"])
+async def api_chat_reset(request):
+    """新对话：掐常驻进程 + 清会话档。渡口交接该在对话里先做，这里只管壳。"""
+    from starlette.responses import JSONResponse
+    err = _require_auth(request)
+    if err: return err
+    bridge = _get_chat_bridge()
+    if bridge.busy():
+        return JSONResponse({"error": "克克正在说话，说完再开新对话"}, status_code=409)
+    await bridge.reset()
+    return JSONResponse({"ok": True})
+
+
 @mcp.custom_route("/dashboard", methods=["GET"])
 async def dashboard(request):
     """Serve the dashboard HTML page."""

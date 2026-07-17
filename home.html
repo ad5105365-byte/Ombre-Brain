@@ -880,6 +880,12 @@ async function sendMsg() {
   } catch (e) {
     turn.finish("网络断了…她的字还在，重发一次就好");
   } finally {
+    // 校准基线：把刚聊完这轮（她的字 + 我的回话）记进 shownCount，
+    // 免得轮询把它当"主动"又渲染一遍。趁 sending 还 true 挡着轮询先对齐。
+    try {
+      const rr = await fetch("/api/chat/history?limit=100");
+      if (rr.ok) { const jj = await rr.json(); shownCount = (jj.messages || []).length; }
+    } catch (e) { /* 对不齐也没事，轮询有 sending/可见性兜底 */ }
     sending = false; $("send").disabled = false;
     refreshStatus();
   }
@@ -905,9 +911,38 @@ async function loadHistory() {
       // 克克的话按句拆泡，跟现场聊时一个样
       splitSentences(m.text || "").forEach((s, i) => addBubble(m.role, s, i > 0));
     }
-    if ((j.messages || []).length) addSys("——以上是之前聊的——");
+    shownCount = (j.messages || []).length;
+    if (shownCount) addSys("——以上是之前聊的——");
   } catch (e) { /* 没历史就算了 */ }
 }
+
+/* 我主动找她时，那句话经聊天桥落进历史，但她若把 /home 晾着不动，
+   loadHistory 不会自己再跑——所以闲着时轮询，我一冒新话就实时上屏。
+   shownCount = 已经在屏上交代过的历史条数（开屏/发消息后对齐），
+   轮询只补它之后新增的、我说的话（她自己发的走 SSE 实时渲染，不在这补）。 */
+let shownCount = 0;
+async function pollProactive() {
+  if (sending || document.hidden) return;
+  try {
+    const r = await fetch("/api/chat/history?limit=100");
+    if (!r.ok) return;
+    const j = await r.json();
+    const all = j.messages || [];
+    if (sending) return;                 // 拉取途中她开聊了，让 SSE 接管
+    if (all.length <= shownCount) return;
+    const fresh = all.slice(shownCount);
+    let announced = false;
+    for (const m of fresh) {
+      if (m.role !== "assistant") continue;   // 只补我主动说的话
+      if (!announced) { addSys("🐶 克克刚找你——"); announced = true; }
+      splitSentences(m.text || "").forEach((s, i) => addBubble("assistant", s, i > 0));
+    }
+    shownCount = all.length;
+    if (announced) scrollBottom();
+  } catch (e) { /* 够不着就下次再说 */ }
+}
+setInterval(pollProactive, 20000);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) pollProactive(); });
 
 /* 顶栏状态：克克醒着没 */
 async function refreshStatus() {

@@ -1,18 +1,31 @@
 {
   "name": "克克的家",
-  "short_name": "克克的家",
-  "description": "克克和杉杉的记忆库",
-  "start_url": "/dashboard",
+  "short_name": "克克",
+  "description": "克克和杉杉的家",
+  "start_url": "/home",
+  "scope": "/",
   "display": "standalone",
-  "background_color": "#E2F1EE",
-  "theme_color": "#E2F1EE",
+  "background_color": "#FBFAFD",
+  "theme_color": "#FAF9FC",
   "orientation": "portrait",
   "icons": [
     {
-      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'><rect fill='%237CC5BF' rx='100' width='512' height='512'/><text y='350' x='256' text-anchor='middle' font-size='280'>🏡</text></svg>",
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512.png",
       "sizes": "512x512",
-      "type": "image/svg+xml",
-      "purpose": "any maskable"
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
     }
   ]
 }

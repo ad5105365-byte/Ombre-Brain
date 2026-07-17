@@ -5,8 +5,20 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="克克的家">
 <meta name="theme-color" content="#FAF9FC">
+<link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<link rel="icon" href="/icons/icon-192.png">
 <title>克克的家</title>
+<script>
+/* PWA：注册 service worker（HTTPS 下才生效，iOS 装桌面用） */
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js").catch(() => {});
+  });
+}
+</script>
 <style>
 /* ============================================================
    克克的家 —— 前端骨架 v1（聊天全功能；🫀/🏠 留给 opus48 上肉）
@@ -182,6 +194,8 @@ body {
 }
 .her .avatar { background: var(--accent); order: 2; }
 .him .avatar { background: #FFFFFF; }
+/* 设了情头就铺照片，字牌隐掉；没设仍走上面的字牌底色 */
+.avatar.has-img { background-size: cover; background-position: center; color: transparent; }
 .bubble {
   max-width: 82%; padding: 10px 14px; border-radius: 18px;
   font-size: 16px; line-height: 1.55; word-break: break-word; white-space: pre-wrap;
@@ -681,6 +695,7 @@ function unlock(animate) {
   if (animate) $("lock").classList.add("unlocking");
   else $("lock").style.display = "none";
   $("app").classList.add("on");
+  loadAvatars();
   loadHistory();
   refreshStatus();
 }
@@ -728,12 +743,40 @@ function addSys(text) {
   d.firstChild.textContent = text;
   msgs.appendChild(d); scrollBottom();
 }
+/* 情侣头像：设了就铺照片，没设回退"杉/克"字牌（签名 URL 由 /api/avatars 现取） */
+let AVATAR_HER = "", AVATAR_HIM = "";
+function applyAvatar(el, role) {
+  const url = role === "user" ? AVATAR_HER : AVATAR_HIM;
+  if (url) {
+    el.style.backgroundImage = 'url("' + url + '")';
+    el.classList.add("has-img");
+    el.textContent = "";
+  } else {
+    el.classList.remove("has-img");
+    el.style.backgroundImage = "";
+    el.textContent = role === "user" ? "杉" : "克";
+  }
+}
+/* 情头到货后，把已经上屏的字牌都换成照片 */
+function refreshAvatars() {
+  document.querySelectorAll(".msg.her .avatar").forEach((el) => applyAvatar(el, "user"));
+  document.querySelectorAll(".msg.him .avatar").forEach((el) => applyAvatar(el, "him"));
+}
+async function loadAvatars() {
+  try {
+    const r = await fetch("/api/avatars");
+    if (!r.ok) return;
+    const j = await r.json();
+    AVATAR_HER = j.her || ""; AVATAR_HIM = j.him || "";
+    refreshAvatars();
+  } catch (e) { /* 拿不到就继续用字牌 */ }
+}
 function addBubble(role, text, cont) {
   const wrap = document.createElement("div");
   wrap.className = "msg " + (role === "user" ? "her" : "him") + (cont ? " cont" : "");
   const av = document.createElement("div");
   av.className = "avatar";
-  av.textContent = role === "user" ? "杉" : "克";
+  applyAvatar(av, role);
   const b = document.createElement("div");
   b.className = "bubble";
   if (text) b.textContent = text;
@@ -761,7 +804,8 @@ function makeTurnRenderer() {
   // 打字点点：先蹦出来占位，说明克克在措辞
   const typing = document.createElement("div");
   typing.className = "msg him typing";
-  typing.innerHTML = '<div class="avatar">克</div><div class="bubble"><i></i><i></i><i></i></div>';
+  typing.innerHTML = '<div class="avatar"></div><div class="bubble"><i></i><i></i><i></i></div>';
+  applyAvatar(typing.firstChild, "him");
   msgs.appendChild(typing); scrollBottom();
 
   let buf = "", first = true, thinkDiv = null, chip = null, popped = false;
@@ -772,7 +816,7 @@ function makeTurnRenderer() {
     const wrap = document.createElement("div");
     wrap.className = "msg him" + (first ? "" : " cont");
     const av = document.createElement("div");
-    av.className = "avatar"; av.textContent = "克";
+    av.className = "avatar"; applyAvatar(av, "him");
     const b = document.createElement("div");
     b.className = "bubble"; b.textContent = text.trim();
     wrap.appendChild(av); wrap.appendChild(b);
@@ -799,8 +843,9 @@ function makeTurnRenderer() {
       thinkDiv.className = "think";
       det.appendChild(thinkDiv);
       b.appendChild(det);
-      wrap.appendChild(Object.assign(document.createElement("div"),
-        { className: "avatar", textContent: "克" }));
+      const av = document.createElement("div");
+      av.className = "avatar"; applyAvatar(av, "him");
+      wrap.appendChild(av);
       wrap.appendChild(b);
       insertBeforeTyping(wrap); scrollBottom();
       first = false;

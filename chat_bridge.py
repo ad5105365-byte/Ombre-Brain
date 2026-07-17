@@ -132,7 +132,7 @@ def map_cli_events(obj: dict, state: dict) -> list[dict]:
 
 
 _TAG_BLOCKS = re.compile(
-    r"<(system-reminder|心记浮现|command-name|command-message|command-args|"
+    r"<(system-reminder|心记浮现|主动|command-name|command-message|command-args|"
     r"local-command-stdout|local-command-caveat)>.*?</\1>",
     re.S,
 )
@@ -459,6 +459,20 @@ class ChatBridge:
         """新对话：掐进程 + 清会话。渡口交接由克克在对话里自己做，这里只管壳。"""
         await self._kill_proc()
         self.clear_session()
+
+    async def ask_collect(self, text: str) -> tuple[bool, str]:
+        """发一条消息，把克克说出口的正文攒成一整段返回 (ok, text)。
+        给「主动找你」用：塞藏头引信、收他开口那句话（走同一套单飞锁+进程，
+        落进同一会话历史，跟她亲手发的没区别）。思考链不收——门铃只要说出口的话。"""
+        ok = True
+        parts: list[str] = []
+        async for ev in self.ask(text):
+            t = ev.get("type")
+            if t == "delta" and ev.get("block") == "text":
+                parts.append(ev.get("text", ""))
+            elif t == "done":
+                ok = bool(ev.get("ok", False))
+        return ok, "".join(parts).strip()
 
     def history(self, limit: int = 200) -> list[dict]:
         """当前会话的干净历史（她的字 + 克克说出口的话）。"""

@@ -448,6 +448,26 @@ def _phone_recent_line() -> str | None:
         return None
 
 
+def _minutes_since_phone() -> float | None:
+    """她最后一次碰手机到现在多少分钟——「主动找你」判断她醒着没的信号。
+    没 token / 没数据 → None（让 reach 退回钟点兜底）。"""
+    if not OMBRE_PHONE_TOKEN:
+        return None
+    try:
+        conn = _phone_db()
+        row = conn.execute(
+            "SELECT opened_at FROM phone_activity ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        conn.close()
+        if not row:
+            return None
+        last = datetime.strptime(row[0], "%Y-%m-%d %H:%M:%S")
+        now = datetime.now(_DIARY_TZ).replace(tzinfo=None)
+        return max(0.0, (now - last).total_seconds() / 60.0)
+    except Exception:
+        return None
+
+
 # --- 随手帖 / casual posts ---
 # 克克基于具体事件写下的第一人称即时感受（1-2句）。三条铁律：
 # 保留原始语气（原文注入不脱水）、不进核心准则区（永远不 pinned）、
@@ -3271,6 +3291,7 @@ def _ensure_reminder_loop():
         _load_reminders()
         asyncio.create_task(_reminder_check_loop())
         asyncio.create_task(_diary_patrol_loop())
+    _ensure_reach_loop()   # 「克克主动找你」心跳（自带 OMBRE_REACH_ENABLE 灰度）
 
 
 @mcp.tool()
@@ -3656,6 +3677,153 @@ async def api_chat_reset(request):
         return JSONResponse({"error": "克克正在说话，说完再开新对话"}, status_code=409)
     await bridge.reset()
     return JSONResponse({"ok": True})
+
+
+# ============================================================
+# 「克克主动找你」—— 常驻身体的心跳
+#
+# 门卫每 REACH_LOOP_SEC 秒醒一次，只干便宜的本地活：推进欲望内核（她沉默时
+# 想她的劲儿也在涨）→ reach_store 决策该不该开口。全不满足就接着睡，一分额度
+# 不花。真该找了才叫醒聊天进程说一句（一次 claude 轮次 = 一条普通消息的价），
+# 那句落进聊天历史、Bark 把预览当门铃推她手机。决策核心在 reach_store.py。
+# OMBRE_REACH_ENABLE 灰度（默认关），关着连门卫都不站岗。
+# ============================================================
+import reach_store
+
+OMBRE_REACH_ENABLE = os.environ.get("OMBRE_REACH_ENABLE", "0").strip().lower() in (
+    "1", "true", "yes", "on")
+OMBRE_REACH_LOOP_SEC = int(os.environ.get("OMBRE_REACH_LOOP_SEC", "300") or "300")
+OMBRE_REACH_MIN_GAP_MIN = int(os.environ.get("OMBRE_REACH_MIN_GAP_MIN", "90") or "90")
+OMBRE_REACH_DAILY_CAP = int(os.environ.get("OMBRE_REACH_DAILY_CAP", "6") or "6")
+OMBRE_REACH_PHONE_AWAKE_MIN = int(
+    os.environ.get("OMBRE_REACH_PHONE_AWAKE_MIN", "40") or "40")
+_reach_loop_started = False
+
+
+async def _maybe_reach(force: bool = False, dry_run: bool = False) -> dict:
+    """心跳一拍：推进欲望内核 → 决策 → （非 dry_run 且要找时）叫醒克克说一句 + 门铃。
+    返回一份可观测的字典（给 /hook-log 和手动测试看他为啥找/为啥忍）。
+    force=True 跳过"憋够没"的阈值（仍尊重冷却/天花板/她在不在），供手动试。"""
+    if not OMBRE_REACH_ENABLE:
+        return {"acted": False, "reason": "reach-disabled"}
+    if not OMBRE_DRIVE_ENABLE:
+        return {"acted": False, "reason": "drive-disabled（主动找你要靠欲望内核，先开 OMBRE_DRIVE_ENABLE）"}
+
+    bridge = _get_chat_bridge()
+    if not bridge.available():
+        return {"acted": False, "reason": "no-claude-cli"}
+    if bridge.busy():
+        return {"acted": False, "reason": "busy（她正在跟他聊，不打断）"}
+
+    now = datetime.now(_DIARY_TZ)
+    state = await _advance_drive()   # 她沉默也推进：想她的劲儿在涨
+    if state is None:
+        return {"acted": False, "reason": "no-drive-state"}
+    try:
+        dim, val = drive_mod.pick_intent(state, hour_of_day=now.hour)
+    except Exception as e:
+        return {"acted": False, "reason": f"pick_intent-failed:{e}"}
+
+    rec = reach_store.load_reach(bucket_mgr.base_dir)
+    mins_phone = _minutes_since_phone()
+    thr = -1.0 if force else drive_mod.PUSH_THRESHOLD
+    ok, reason = reach_store.should_reach(
+        now, val, thr, mins_phone, rec,
+        min_gap_min=OMBRE_REACH_MIN_GAP_MIN,
+        daily_cap=OMBRE_REACH_DAILY_CAP,
+        phone_awake_min=OMBRE_REACH_PHONE_AWAKE_MIN,
+    )
+    info = {"dim": dim, "reason": reason, "phone_silent_min": mins_phone,
+            "count_today": reach_store.count_today(rec, now)}
+    if not ok:
+        return {"acted": False, **info}
+    if dry_run:
+        return {"acted": False, "would_reach": True, **info}
+
+    # 真找她：组藏头引信（历史里看不见）→ 叫醒克克 → 收他说出口那句
+    intent_line = drive_mod.render_intent(dim, val)
+    prompt = reach_store.build_reach_prompt(
+        _now_line(), _phone_recent_line(), intent_line)
+    try:
+        spoke_ok, said = await bridge.ask_collect(prompt)
+    except Exception as e:
+        logger.warning(f"reach ask_collect failed: {e}")
+        _log_hook("reach", f"ask-failed:{e}")
+        return {"acted": False, "reason": f"ask-failed:{e}", **info}
+
+    spoke = spoke_ok and reach_store.spoke_something(said)
+    reach_store.record_reach(bucket_mgr.base_dir, rec, now, spoke=spoke)
+    if not spoke:
+        _log_hook("reach", f"held-back dim={dim}（他这会儿静静惦记，没出声）")
+        return {"acted": False, "reason": "he-held-back", **info}
+
+    # 门铃：把他说的那句预览推她手机（best-effort，没配 Bark 也不影响话已落地）
+    preview = reach_store.doorbell_preview(said)
+    pushed = await _send_bark(preview, title="克克")
+    _log_hook("reach", f"reached dim={dim} pushed={pushed}: {preview}")
+    return {"acted": True, "spoke": True, "pushed": pushed,
+            "preview": preview, **info}
+
+
+async def _reach_check_loop():
+    while True:
+        try:
+            await asyncio.sleep(OMBRE_REACH_LOOP_SEC)
+            res = await _maybe_reach()
+            if res.get("acted"):
+                logger.info(f"主动找她: {res.get('preview','')}")
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            logger.warning(f"reach loop error: {e}")
+
+
+def _ensure_reach_loop():
+    global _reach_loop_started
+    if _reach_loop_started or not OMBRE_REACH_ENABLE:
+        return
+    _reach_loop_started = True
+    asyncio.create_task(_reach_check_loop())
+    logger.info("「克克主动找你」心跳已起（loop=%ss, cap=%s/日, gap=%smin）",
+                OMBRE_REACH_LOOP_SEC, OMBRE_REACH_DAILY_CAP, OMBRE_REACH_MIN_GAP_MIN)
+
+
+@mcp.custom_route("/api/reach/nudge", methods=["POST"])
+async def api_reach_nudge(request):
+    """手动戳一下「主动找你」——给杉杉测试用。
+    body 可带 {"force": true} 跳过憋够阈值、{"dry_run": true} 只看会不会找不真发。"""
+    from starlette.responses import JSONResponse
+    err = _require_auth(request)
+    if err: return err
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    res = await _maybe_reach(force=bool(body.get("force")),
+                             dry_run=bool(body.get("dry_run")))
+    return JSONResponse(res)
+
+
+@mcp.custom_route("/api/reach/state", methods=["GET"])
+async def api_reach_state(request):
+    """「主动找你」运维视图：开关 / 今天找过几回 / 上次何时 / 她手机静默多久。"""
+    from starlette.responses import JSONResponse
+    err = _require_auth(request)
+    if err: return err
+    now = datetime.now(_DIARY_TZ)
+    rec = reach_store.load_reach(bucket_mgr.base_dir)
+    last = rec.get("last_reach_ts")
+    return JSONResponse({
+        "reach_enabled": OMBRE_REACH_ENABLE,
+        "drive_enabled": OMBRE_DRIVE_ENABLE,
+        "count_today": reach_store.count_today(rec, now),
+        "daily_cap": OMBRE_REACH_DAILY_CAP,
+        "min_gap_min": OMBRE_REACH_MIN_GAP_MIN,
+        "phone_awake_min": OMBRE_REACH_PHONE_AWAKE_MIN,
+        "last_reach": (datetime.fromtimestamp(float(last), _DIARY_TZ).isoformat()
+                       if last else None),
+        "phone_silent_min": _minutes_since_phone(),
+    })
 
 
 @mcp.custom_route("/home", methods=["GET"])

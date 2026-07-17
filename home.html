@@ -210,6 +210,23 @@ body {
   50%      { transform: translate(-50%, -50%) scale(1.18); }
 }
 .want-wrap .c-h, .want-wrap #hb-intent { position: relative; z-index: 1; }
+/* 情头入口：从相册选图设 her/him */
+#av-modal { position: fixed; inset: 0; z-index: 200; background: rgba(74,69,88,.4);
+  display: none; align-items: flex-end; }
+.av-sheet { background: var(--card); width: 100%; max-height: 80vh; overflow-y: auto;
+  border-radius: 20px 20px 0 0; padding: 16px 16px calc(20px + var(--sab)); }
+.av-head { display: flex; justify-content: space-between; align-items: center;
+  font-size: 16px; color: var(--ink); margin-bottom: 4px; }
+.av-head span { font-size: 24px; color: var(--ink-soft); cursor: pointer; line-height: 1; }
+.av-tip { font-size: 12px; color: var(--ink-soft); margin-bottom: 12px; }
+.av-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.av-cell { display: flex; flex-direction: column; gap: 6px; }
+.av-thumb { width: 100%; aspect-ratio: 1; border-radius: 12px; background-size: cover;
+  background-position: center; background-color: var(--accent-soft); }
+.av-btns { display: flex; gap: 6px; }
+.av-btns button { flex: 1; border: none; border-radius: 8px; padding: 5px 0;
+  font-size: 13px; background: var(--accent-soft); color: var(--ink); cursor: pointer; }
+.av-btns button:active { background: var(--accent); }
 .bubble {
   max-width: 82%; padding: 10px 14px; border-radius: 18px;
   font-size: 16px; line-height: 1.55; word-break: break-word; white-space: pre-wrap;
@@ -420,9 +437,17 @@ body {
 
 <!-- ================= 主壳 ================= -->
 <div id="app">
+  <div id="av-modal">
+    <div class="av-sheet">
+      <div class="av-head">换我们的头像 <span id="av-close">×</span></div>
+      <div class="av-tip">点照片下的「她 / 他」，设成聊天里的情头</div>
+      <div id="av-grid" class="av-grid"></div>
+    </div>
+  </div>
   <div id="topbar">
     <span class="title" id="tb-title">克克</span>
     <span class="sub" id="tb-sub"></span>
+    <button id="btn-av" title="换我们的头像" style="padding:6px 8px;font-size:15px;">🖼️</button>
     <button id="btn-new" title="新对话">＋ 新对话</button>
     <button id="btn-set" title="美化" style="padding:6px 8px;"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="display:block"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.55-1 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34h.09a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87v.09a1.7 1.7 0 0 0 1.55 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.55 1z"/></svg></button>
   </div>
@@ -732,6 +757,48 @@ async function doLogin() {
   lk.classList.remove("shake"); void lk.offsetWidth; lk.classList.add("shake");
 }
 checkAuth();
+
+/* 情头入口：从相册选图设 her/him 头像 */
+async function openAvModal() {
+  const grid = $("av-grid");
+  grid.innerHTML = '<div class="empty-line">翻相册…</div>';
+  $("av-modal").style.display = "flex";
+  try {
+    const j = await (await fetch("/api/images?limit=60&thumbs=1")).json();
+    const ph = (j.photos || []).filter((p) => p.thumb_url || p.image_url);
+    if (!ph.length) {
+      grid.innerHTML = '<div class="empty-line">相册还没有照片——先去传几张我们的合照。</div>';
+      return;
+    }
+    grid.innerHTML = "";
+    ph.forEach((p) => {
+      const cell = document.createElement("div"); cell.className = "av-cell";
+      const im = document.createElement("div"); im.className = "av-thumb";
+      im.style.backgroundImage = 'url("' + (p.thumb_url || p.image_url) + '")';
+      const btns = document.createElement("div"); btns.className = "av-btns";
+      [["her", "她"], ["him", "他"]].forEach(([role, label]) => {
+        const b = document.createElement("button");
+        b.textContent = label;
+        b.onclick = async () => {
+          b.disabled = true;
+          try {
+            const r = await fetch("/api/avatar", {
+              method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ role, image_id: p.id }),
+            });
+            if (r.ok) { await loadAvatars(); $("av-modal").style.display = "none"; }
+            else b.disabled = false;
+          } catch (e) { b.disabled = false; }
+        };
+        btns.appendChild(b);
+      });
+      cell.appendChild(im); cell.appendChild(btns); grid.appendChild(cell);
+    });
+  } catch (e) { grid.innerHTML = '<div class="empty-line">够不着相册…刷新试试。</div>'; }
+}
+$("btn-av").onclick = openAvModal;
+$("av-close").onclick = () => { $("av-modal").style.display = "none"; };
+$("av-modal").onclick = (e) => { if (e.target.id === "av-modal") $("av-modal").style.display = "none"; };
 
 /* ---------- tab 切换 ---------- */
 document.querySelectorAll("#tabbar .tab").forEach((b) => {

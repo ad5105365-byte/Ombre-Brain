@@ -271,6 +271,35 @@ def _require_auth(request):
     return None
 
 
+def _is_local_request(client_host: str | None, headers) -> bool:
+    """内部钩子的"仅限本机"判定（纯逻辑，可独立测）。
+
+    nginx 反代后所有公网流量到 app 时源 IP 也是 127.0.0.1，不能只看 client——
+    但 nginx 一定带 X-Forwarded-For / X-Real-IP，而本机 hooks 直连 8000 不带。
+    规则：带转发头 = 经反代来的公网请求 → 拒；不带且源是回环 → 放。
+    （公网直连 8000 被 ufw 挡着，伪造转发头也只会被拒，无绕过面。）"""
+    if headers.get("x-forwarded-for") or headers.get("x-real-ip"):
+        return False
+    return client_host in ("127.0.0.1", "::1", "localhost")
+
+
+def _require_local(request):
+    """内部钩子端点的 app 层守卫：非本机一律 403。
+    与 nginx 的 deny 规则(2026-07-18 加固)双保险——哪天 nginx 配置手滑，这里还兜着。
+    拿不到网络信息的请求（单测的假 request）当本机放行——真 uvicorn 请求
+    永远带 client/headers，不构成绕过面。
+    Return PlainTextResponse(403) if not local, else None."""
+    from starlette.responses import PlainTextResponse
+    client = getattr(request, "client", None)
+    headers = getattr(request, "headers", None)
+    if client is None and headers is None:
+        return None  # 测试替身：无任何网络信息
+    client_host = client.host if client else None
+    if not _is_local_request(client_host, headers or {}):
+        return PlainTextResponse("forbidden", status_code=403)
+    return None
+
+
 # --- Auth endpoints ---
 @mcp.custom_route("/auth/status", methods=["GET"])
 async def auth_status(request):
@@ -529,6 +558,8 @@ def _random_post_line(all_buckets: list) -> str | None:
 @mcp.custom_route("/breath-hook", methods=["GET"])
 async def breath_hook(request):
     from starlette.responses import PlainTextResponse
+    guard = _require_local(request)
+    if guard: return guard
     _ensure_reminder_loop()
     t0 = time.monotonic()
     # 欲望内核惰性推进（开关关着时返回 None，一切短路）
@@ -945,6 +976,8 @@ async def phone_activity_daily(request):
 @mcp.custom_route("/hook-log", methods=["GET", "POST"])
 async def hook_log(request):
     from starlette.responses import JSONResponse
+    guard = _require_local(request)
+    if guard: return guard
     # POST = 报到电话：她容器的 setup script 开机打一发，带环境侦察情报，
     # 用来区分"钩子没加载"和"setup script/网络本身不通"
     if request.method == "POST":
@@ -1202,6 +1235,8 @@ async def drive_state_view(request):
 @mcp.custom_route("/recall-hook", methods=["POST"])
 async def recall_hook(request):
     from starlette.responses import PlainTextResponse
+    guard = _require_local(request)
+    if guard: return guard
     t0 = time.monotonic()
     try:
         body = await request.json()
@@ -1394,6 +1429,8 @@ async def recall_hook(request):
 @mcp.custom_route("/dream-hook", methods=["GET"])
 async def dream_hook(request):
     from starlette.responses import PlainTextResponse
+    guard = _require_local(request)
+    if guard: return guard
     _log_hook("dream")
     try:
         all_buckets = await bucket_mgr.list_all(include_archive=False)
@@ -1444,6 +1481,8 @@ MANUAL_FERRY_GUARD_MINUTES = 10
 @mcp.custom_route("/ferry-hook", methods=["POST"])
 async def ferry_hook(request):
     from starlette.responses import JSONResponse
+    guard = _require_local(request)
+    if guard: return guard
     t0 = time.monotonic()
     try:
         body = await request.json()

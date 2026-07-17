@@ -4605,13 +4605,51 @@ def _extract_storage_path(content: str) -> str:
     return ""
 
 
+# ⚠️ 默认 limit 跟上限对齐（不是常见的"每页30张"那种小分页默认值）：
+# dashboard.html 已有的相册页（#page-gallery / loadGallery(), 2026-07-18
+# 发现）现在调 GET /api/images 完全不带参数，指望一次性拿到全部照片。
+# 默认给小分页会在她相册超过默认值时悄悄阉割那个页面看到的照片——这是
+# 运行时行为变化，单测覆盖不到。默认跟上限一样大，等于"没显式要分页
+# 就照老样子给全部"，新调用方仍可以显式传小 limit 吃到分页能力。
+IMG_PAGE_DEFAULT_LIMIT = 200
+IMG_PAGE_MAX_LIMIT = 200
+IMG_THUMB_TRANSFORM = {"width": 320, "height": 320, "resize": "cover"}
+
+
+def _parse_page_params(request, default_limit: int, max_limit: int) -> tuple[int, int]:
+    """Read ?limit=&offset= off the query string, clamped to sane bounds.
+    Bad/missing values fall back to defaults instead of 400ing — a gallery
+    scroller shouldn't break over a stray query param."""
+    try:
+        limit = int(request.query_params.get("limit", default_limit))
+    except (TypeError, ValueError):
+        limit = default_limit
+    limit = max(1, min(limit, max_limit))
+    try:
+        offset = int(request.query_params.get("offset", 0))
+    except (TypeError, ValueError):
+        offset = 0
+    offset = max(0, offset)
+    return limit, offset
+
+
 @mcp.custom_route("/api/images", methods=["GET"])
 async def api_images_list(request):
-    """List all photos: OB buckets (descriptions) + Supabase Storage (files)."""
+    """List photos (paged, newest first): OB buckets (descriptions) + Supabase
+    Storage (files). Query params:
+      ?limit=&offset=  分页——默认 30/页，最多 200；只签当页要的 URL，
+                       不再一次性签全相册（相册涨到几百张也不慢）。
+      ?thumbs=1        额外带一份缩略图签名 URL（thumb_url，320x320 裁剪）。
+                       需要 Supabase 项目开了 Image Transformation 付费项；
+                       没开就悄悄拿不到，thumb_url 留空，前端退回 image_url。
+    """
     from starlette.responses import JSONResponse
     err = _require_auth(request)
     if err: return err
     try:
+        limit, offset = _parse_page_params(request, IMG_PAGE_DEFAULT_LIMIT, IMG_PAGE_MAX_LIMIT)
+        want_thumbs = request.query_params.get("thumbs", "") in ("1", "true", "yes")
+
         all_buckets = await bucket_mgr.list_all(include_archive=True)
         photo_buckets = [
             b for b in all_buckets
@@ -4619,9 +4657,12 @@ async def api_images_list(request):
             or "photo" in (b["metadata"].get("tags") or [])
         ]
         photo_buckets.sort(key=lambda b: b["metadata"].get("created", ""), reverse=True)
+        total = len(photo_buckets)
+        page = photo_buckets[offset:offset + limit]
+
         storage_paths = []
         bucket_path_map = {}
-        for b in photo_buckets:
+        for b in page:
             content = b.get("content", "")
             path = _extract_storage_path(content)
             if path:
@@ -4629,15 +4670,23 @@ async def api_images_list(request):
                 bucket_path_map[b["id"]] = path
 
         signed_urls = {}
+        thumb_urls = {}
         if storage_paths and _img_is_configured():
             try:
                 from image_store import create_signed_urls as _img_sign_urls
                 signed_urls = await _img_sign_urls(storage_paths)
             except Exception:
                 pass
+            if want_thumbs:
+                try:
+                    from image_store import create_signed_urls as _img_sign_urls_thumb
+                    thumb_urls = await _img_sign_urls_thumb(
+                        storage_paths, transform=IMG_THUMB_TRANSFORM)
+                except Exception:
+                    thumb_urls = {}
 
         result = []
-        for b in photo_buckets:
+        for b in page:
             meta = b.get("metadata", {})
             content = b.get("content", "")
             path = bucket_path_map.get(b["id"], "")
@@ -4648,15 +4697,24 @@ async def api_images_list(request):
                     s = line.find("("); e = line.rfind(")")
                     if s != -1 and e != -1: raw_url = line[s+1:e]
                     break
-            result.append({
+            entry = {
                 "id": b["id"],
                 "name": meta.get("name", b["id"]),
                 "description": strip_wikilinks(content).replace(raw_url, "").strip(),
                 "image_url": img_url,
                 "created": meta.get("created", ""),
                 "tags": meta.get("tags", []),
-            })
-        return JSONResponse({"photos": result, "storage_configured": _img_is_configured()})
+            }
+            if want_thumbs:
+                entry["thumb_url"] = thumb_urls.get(path, "") if path else ""
+            result.append(entry)
+        return JSONResponse({
+            "photos": result,
+            "storage_configured": _img_is_configured(),
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+        })
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
 

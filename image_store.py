@@ -118,14 +118,24 @@ async def create_signed_url(path: str, expires_in: int = 3600) -> str:
     return f"{SUPABASE_URL}/storage/v1/object/{SUPABASE_BUCKET}/{path}"
 
 
-async def create_signed_urls(paths: list[str], expires_in: int = 3600) -> dict[str, str]:
+async def create_signed_urls(
+    paths: list[str], expires_in: int = 3600, transform: dict | None = None
+) -> dict[str, str]:
+    """Batch-sign storage paths. `transform` (e.g. {"width":320,"height":320,
+    "resize":"cover"}) asks Supabase's on-the-fly image transform to return a
+    resized thumbnail instead of the original — requires the Image
+    Transformation add-on on the Supabase project; unsupported projects will
+    just fail this call (caller falls back to full-size, see /api/images)."""
     if not is_configured() or not paths:
         return {}
+    body = {"expiresIn": expires_in, "paths": paths}
+    if transform:
+        body["transform"] = transform
     async with httpx.AsyncClient(timeout=15.0) as client:
         resp = await client.post(
             f"{SUPABASE_URL}/storage/v1/object/sign/{SUPABASE_BUCKET}",
             headers={**_headers(), "Content-Type": "application/json"},
-            json={"expiresIn": expires_in, "paths": paths},
+            json=body,
         )
         if resp.status_code == 200:
             result = {}

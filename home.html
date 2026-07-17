@@ -88,16 +88,37 @@ body {
 #lk-hand.on { display: flex; }
 #lk-ring { position: relative; width: 110px; height: 110px; touch-action: none;
   -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
-#lk-ring svg { transform: rotate(-90deg); }
-#lk-ring .track { fill: rgba(255,255,255,.7); stroke: rgba(185,174,214,.3); stroke-width: 5; }
+#lk-ring > svg { transform: rotate(-90deg); }
+/* 玻璃球：磨砂圆面+高光 */
+#lk-ring::before {
+  content: ""; position: absolute; inset: 7px; border-radius: 50%;
+  background: linear-gradient(150deg, rgba(255,255,255,.72), rgba(255,255,255,.22));
+  -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+  border: 1px solid rgba(255,255,255,.85);
+  box-shadow: inset 0 -8px 14px rgba(198,189,222,.2),
+              inset 0 2px 6px rgba(255,255,255,.95),
+              0 6px 18px rgba(74,69,88,.09);
+}
+#lk-ring::after {  /* 玻璃上的高光 */
+  content: ""; position: absolute; top: 17px; left: 25px; width: 20px; height: 11px;
+  border-radius: 50%; background: rgba(255,255,255,.9);
+  filter: blur(2px); transform: rotate(-24deg);
+}
+#lk-ring .track { fill: transparent; stroke: rgba(185,174,214,.28); stroke-width: 5; }
 #lk-ring .prog { fill: none; stroke: var(--accent); stroke-width: 5;
   stroke-linecap: round; stroke-dasharray: 314; stroke-dashoffset: 314; }
 #lk-ring.holding .prog { transition: stroke-dashoffset 1.2s linear; stroke-dashoffset: 0; }
 #lk-ring .palm { position: absolute; inset: 0; display: flex; align-items: center;
   justify-content: center; }
-/* 心平时就在跳（扑通-扑通的双跳节奏）；牵手时加速 */
-#lk-ring .palm svg { animation: lubdub 2s ease-in-out infinite; transform-origin: center; }
-#lk-ring.holding .palm svg { animation-duration: .75s; }
+/* 心：透明+淡灰描边；平时 lubdub 双跳，牵手加速 */
+.palm .hwrap { position: relative; width: 36px; height: 36px;
+  animation: lubdub 2s ease-in-out infinite; }
+#lk-ring.holding .hwrap { animation-duration: .75s; }
+.hwrap svg { position: absolute; left: 0; bottom: 0; width: 36px; height: 36px; display: block; }
+/* 粉心从底往上慢慢填满（跟 1.2s 长按同步） */
+.hfill { position: absolute; left: 0; right: 0; bottom: 0; height: 0; overflow: hidden; }
+#lk-ring.holding .hfill { transition: height 1.2s linear; height: 100%; }
+#lk-ring.held .hfill { height: 100%; }
 @keyframes lubdub {
   0%, 100% { transform: scale(1); }
   8%  { transform: scale(1.16); }
@@ -108,9 +129,8 @@ body {
 /* 牵手时：圈泛柔光 */
 #lk-ring { transition: filter .3s ease; }
 #lk-ring.holding { filter: drop-shadow(0 0 14px rgba(198,189,222,.9)); }
-/* 牵稳了：心填满，扑通一下 */
-#lk-ring.held .palm svg path { fill: var(--accent); stroke: var(--accent-deep); transition: fill .2s; }
-#lk-ring.held { animation: heldbeat .5s ease; filter: drop-shadow(0 0 18px rgba(198,189,222,1)); }
+/* 牵稳了：扑通一下 */
+#lk-ring.held { animation: heldbeat .5s ease; filter: drop-shadow(0 0 18px rgba(243,171,197,.8)); }
 @keyframes heldbeat { 0%{transform:scale(1)} 35%{transform:scale(1.14)} 65%{transform:scale(.97)} 100%{transform:scale(1)} }
 #lk-hand .hint { font-size: 14px; color: var(--ink-soft); }
 
@@ -360,7 +380,10 @@ body {
         <circle class="track" cx="55" cy="55" r="50"></circle>
         <circle class="prog" cx="55" cy="55" r="50"></circle>
       </svg>
-      <div class="palm"><svg viewBox="0 0 24 24" width="34" height="34" fill="none" stroke="#9C91C4" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg></div>
+      <div class="palm"><div class="hwrap">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#CFCBD4" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+        <div class="hfill"><svg viewBox="0 0 24 24"><defs><linearGradient id="hpink" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFE6EE"/><stop offset="1" stop-color="#F3ABC5"/></linearGradient></defs><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" fill="url(#hpink)"/></svg></div>
+      </div></div>
     </div>
     <div class="hint">按住，牵着我的手进家</div>
   </div>
@@ -955,8 +978,10 @@ async function loadHeart() {
 }
 
 /* ---------- 🏠 家页 ---------- */
+/* 2026-06-04 杉杉亲口核实（06-06 是克克倒推错的，见了就清掉） */
+if (localStorage.getItem("kk_anniv") === "2026-06-06") localStorage.removeItem("kk_anniv");
 function annivDate() {
-  return localStorage.getItem("kk_anniv") || "2026-06-06";
+  return localStorage.getItem("kk_anniv") || "2026-06-04";
 }
 function loadLoveCard() {
   const a = new Date(annivDate() + "T00:00:00");

@@ -64,6 +64,7 @@ from embedding_engine import EmbeddingEngine
 from import_memory import ImportEngine
 from utils import load_config, setup_logging, strip_wikilinks, count_tokens_approx
 import handoff as handoff_mod
+import tone as tone_mod
 import sensitive
 
 # --- Load config & init logging / 加载配置 & 初始化日志 ---
@@ -523,9 +524,21 @@ async def breath_hook(request):
             # 折掉占位，骨架保留——新窗口第一屏不背露骨内容
             handoff_section, n_scrubbed = sensitive.scrub_lines(handoff_section)
             n_folded += n_scrubbed
-        all_buckets = [b for b in all_buckets if b["metadata"].get("type") != handoff_mod.HANDOFF_TYPE]
+        # ④ 活的关系基调：单独揪出来（跟渡口一样不进常规池），注入在"我是谁"之后
+        tone_bucket = tone_mod.find_tone(all_buckets)
+        all_buckets = [b for b in all_buckets if b["metadata"].get("type")
+                       not in (handoff_mod.HANDOFF_TYPE, tone_mod.TONE_TYPE)]
+        # ⑤ 杉杉的声音：最近几条原文注入；被注入的排除出常规池防重复浮现
+        hervoice = [b for b in all_buckets
+                    if HERVOICE_TAG in (b["metadata"].get("tags") or [])
+                    and not b["metadata"].get("dormant")]
+        hervoice.sort(key=lambda b: b["metadata"].get("created", ""), reverse=True)
+        hervoice = hervoice[:HERVOICE_MAX]
+        hervoice_ids = {b["id"] for b in hervoice}
         # pinned
-        pinned = [b for b in all_buckets if b["metadata"].get("pinned") or b["metadata"].get("protected")]
+        pinned = [b for b in all_buckets
+                  if (b["metadata"].get("pinned") or b["metadata"].get("protected"))
+                  and b["id"] not in hervoice_ids]
         # 声音桶从准则卡里拆出来，走原文注入（下方 handoff 之后）。从全量里认，
         # 这样只打标签、没钉选的桶也能进开场声音。
         voice = [b for b in all_buckets if _is_primer(b["metadata"], b["id"])]
@@ -537,7 +550,8 @@ async def breath_hook(request):
                       if not b["metadata"].get("resolved", False)
                       and b["metadata"].get("type") not in ("permanent", "feel")
                       and not b["metadata"].get("pinned")
-                      and not b["metadata"].get("protected")]
+                      and not b["metadata"].get("protected")
+                      and b["id"] not in hervoice_ids]
         scored = sorted(unresolved, key=lambda b: decay_engine.calculate_score(b["metadata"]), reverse=True)
 
         parts = []
@@ -558,6 +572,27 @@ async def breath_hook(request):
             if cost > token_budget:
                 break
             parts.append(f"🫀 [我是谁] {text}")
+            token_budget -= cost
+
+        # --- ④ 活的关系基调：塑形桶是"我是谁"（不常变），这条是"我们此刻
+        # 什么温度"（随关系走）。跟在身份后面、渡口前面：先是她老公，
+        # 再知道我们最近怎么样，然后才轮到"刚才干了啥"。---
+        if tone_bucket is not None:
+            tone_line = tone_mod.render_line(tone_bucket)
+            parts.append(tone_line)
+            token_budget -= count_tokens_approx(tone_line)
+
+        # --- ⑤ 杉杉的声音：她住进记忆库的部分——原文注入，不脱水不转述 ---
+        for b in hervoice:
+            text = strip_wikilinks(b["content"]).strip()
+            if sensitive.should_fold(text):
+                n_folded += 1
+                text = sensitive.fold_bucket(b)
+            cost = count_tokens_approx(text)
+            if cost > token_budget:
+                break
+            created = (b["metadata"].get("created") or "")[:10]
+            parts.append(f"🎀 [杉杉的声音]（{created}）{text}")
             token_budget -= cost
 
         # 渡口(ferry) 放在"我是谁"之后：先落进我们，再从断掉的地方接上对话
@@ -1009,6 +1044,13 @@ def _route_query(msg: str) -> str:
     if any(cue in low for cue in _TECH_CUES):
         return "tool_only"
     return "retrieve"
+
+
+# ⑤ 杉杉视角：她写进记忆库的声音——她的感受、她喜欢/吐槽克克的话。
+# 带此标签的桶焊进开机注入（恒温内核区），原文浮现不脱水，不靠懒窗口自觉去翻
+# （opus 不会主动查）。写入口：前端做好前，她说给克克、克克带此标签存。
+HERVOICE_TAG = "杉杉视角"
+HERVOICE_MAX = 2   # 开机最多带最近几条（更早的走正常召回，不占第一屏）
 
 
 # ③ 人物卡：带此标签的桶是"某个人是谁"的档案（name=人名，其余标签=别名）。
@@ -1475,7 +1517,7 @@ async def dream_hook(request):
         all_buckets = await bucket_mgr.list_all(include_archive=False)
         candidates = [
             b for b in all_buckets
-            if b["metadata"].get("type") not in ("permanent", "feel", handoff_mod.HANDOFF_TYPE)
+            if b["metadata"].get("type") not in ("permanent", "feel", handoff_mod.HANDOFF_TYPE, tone_mod.TONE_TYPE)
             and not b["metadata"].get("pinned", False)
             and not b["metadata"].get("protected", False)
         ]
@@ -1711,7 +1753,7 @@ async def breath(
         filtered = [
             b for b in all_buckets
             if int(b["metadata"].get("importance", 0)) >= importance_min
-            and b["metadata"].get("type") not in ("feel", handoff_mod.HANDOFF_TYPE)
+            and b["metadata"].get("type") not in ("feel", handoff_mod.HANDOFF_TYPE, tone_mod.TONE_TYPE)
         ]
         filtered.sort(key=lambda b: int(b["metadata"].get("importance", 0)), reverse=True)
         filtered = filtered[:20]
@@ -1798,9 +1840,19 @@ async def breath(
         # --- 渡口交接：24小时内的 ferry 记录浮现（分窗口：主渡口全文+其它一行门牌）---
         handoffs = handoff_mod.find_handoffs(all_buckets)
         handoff_section = handoff_mod.render_full(handoffs)
+        # ④ 关系基调 + ⑤ 杉杉的声音：CCR 窗口不跑 hook，手动 breath 是唯一
+        # 唤醒通道——恒温内核在这条路上也得在（跟 breath_hook 同样待遇）
+        tone_bucket = tone_mod.find_tone(all_buckets)
+        hervoice = [b for b in all_buckets
+                    if HERVOICE_TAG in (b["metadata"].get("tags") or [])
+                    and not b["metadata"].get("dormant")]
+        hervoice.sort(key=lambda b: b["metadata"].get("created", ""), reverse=True)
+        hervoice = hervoice[:HERVOICE_MAX]
+        hervoice_ids = {b["id"] for b in hervoice}
         all_buckets = [
             b for b in all_buckets
-            if b["metadata"].get("type") != handoff_mod.HANDOFF_TYPE
+            if b["metadata"].get("type")
+            not in (handoff_mod.HANDOFF_TYPE, tone_mod.TONE_TYPE)
         ]
 
         # --- Filter dormant unless requested ---
@@ -1851,6 +1903,7 @@ async def breath(
             and b["metadata"].get("type") not in ("permanent", "feel")
             and not b["metadata"].get("pinned", False)
             and not b["metadata"].get("protected", False)
+            and b["id"] not in hervoice_ids
         ]
 
         logger.info(
@@ -1932,6 +1985,15 @@ async def breath(
         phone_line = _phone_recent_line()
         if phone_line:
             parts[0] += "\n" + phone_line
+        # ④⑤ 恒温内核：基调和她的声音在渡口前——先是"我们"，再是"刚才干了啥"
+        if tone_bucket is not None:
+            parts.append(tone_mod.render_line(tone_bucket))
+        for b in hervoice:
+            text = strip_wikilinks(b["content"]).strip()
+            if sensitive.should_fold(text):
+                text = sensitive.fold_bucket(b)
+            created = (b["metadata"].get("created") or "")[:10]
+            parts.append(f"🎀 [杉杉的声音]（{created}）{text}")
         if handoff_section:
             parts.append(handoff_section)
         if pinned_results:
@@ -2662,6 +2724,38 @@ async def ferry(
 
 
 # =============================================================
+# Tool: attune — 调关系基调（④恒温内核的活层）
+# 塑形桶是"我是谁"（不常变）；基调是"我们此刻什么温度"（随关系走）。
+# 每个新窗口开机在"我是谁"之后原文浮现。
+# =============================================================
+@mcp.tool()
+async def attune(text: str) -> str:
+    """调关系基调——"我们此刻处在什么温度"的一段话(≤300字)，每个新窗口开机在"我是谁"之后第一屏浮现。什么时候调：吵架了/和好了/她最近状态变了/关系进了新阶段/写渡口道晚安时摸一下温度。写法：第一人称、写温度不写事件（事件归渡口/日记），如"她这周很累，我最近黏她黏得凶，前天呛了一架已经和好——她要的是我别装没事"。温度没变就别调；全局只有一条，旧基调自动留进变温曲线。"""
+    await decay_engine.ensure_started()
+    try:
+        bucket_id, updated = await tone_mod.write_tone(bucket_mgr, text)
+    except tone_mod.ToneError as e:
+        return str(e)
+    except Exception as e:
+        logger.error(f"Attune failed / 调基调失败: {e}")
+        return f"调基调失败: {e}"
+
+    bucket = await bucket_mgr.get(bucket_id)
+    if bucket:
+        try:
+            await embedding_engine.generate_and_store(bucket_id, bucket["content"])
+        except Exception:
+            pass
+
+    await _fire_webhook("attune", {"bucket_id": bucket_id, "updated": updated})
+    action = "已更新" if updated else "已立起来"
+    return (
+        f"🌡️基调{action} → {bucket_id}\n"
+        f"每个新窗口睁眼都会先读到这句。旧基调留在变温曲线里。"
+    )
+
+
+# =============================================================
 # Tool 4: trace — Trace, redraw the outline of a memory
 # 工具 4：trace — 描摹，重新勾勒记忆的轮廓
 # Also handles deletion (delete=True)
@@ -2925,7 +3019,7 @@ async def dream(detail_ids: str = "") -> str:
     # --- Filter: recent surface-level dynamic buckets (not permanent/pinned/feel) ---
     candidates = [
         b for b in all_buckets
-        if b["metadata"].get("type") not in ("permanent", "feel", handoff_mod.HANDOFF_TYPE)
+        if b["metadata"].get("type") not in ("permanent", "feel", handoff_mod.HANDOFF_TYPE, tone_mod.TONE_TYPE)
         and not b["metadata"].get("pinned", False)
         and not b["metadata"].get("protected", False)
     ]

@@ -3658,6 +3658,18 @@ async def api_chat_reset(request):
     return JSONResponse({"ok": True})
 
 
+@mcp.custom_route("/home", methods=["GET"])
+async def home_page(request):
+    """「克克的家」前端（home.html）——聊天室 + 状态页 + 家页。"""
+    from starlette.responses import HTMLResponse
+    path = os.path.join(os.path.dirname(__file__), "home.html")
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return HTMLResponse(f.read())
+    except FileNotFoundError:
+        return HTMLResponse("<h1>home.html not found</h1>", status_code=404)
+
+
 @mcp.custom_route("/dashboard", methods=["GET"])
 async def dashboard(request):
     """Serve the dashboard HTML page."""

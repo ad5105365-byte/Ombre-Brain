@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="theme-color" content="#F0EDF7">
+<title>克克的家</title>
+<style>
+/* ============================================================
+   克克的家 —— 前端骨架 v1（聊天全功能；🫀/🏠 留给 opus48 上肉）
+   配色：雾紫月色（杉杉钦定，绿色被嫌弃了）
+   ============================================================ */
+:root {
+  /* 雾紫月色 —— 2026-07-17 杉杉选定：月光洒进卧室的感觉 */
+  --bg: #F0EDF7;
+  --accent: #A79BD4;
+  --accent-deep: #7D6FB3;
+  --ink: #3B3552;
+  --ink-soft: #7A7492;
+  --card: #FFFFFF;
+  --her-bubble: #A79BD4;
+  --his-bubble: #FFFFFF;
+  --danger: #E08A7A;
+  --sat: env(safe-area-inset-top, 0px);
+  --sab: env(safe-area-inset-bottom, 0px);
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+  background: var(--bg); color: var(--ink);
+  overscroll-behavior: none;
+}
+
+/* ---------- 开屏锁 ---------- */
+#lock {
+  position: fixed; inset: 0; z-index: 100;
+  background: linear-gradient(160deg, #F2EEF9 0%, #E3DCF2 55%, #CFC4E8 100%);
+  display: flex; flex-direction: column; align-items: center;
+  justify-content: center; gap: 10px;
+  padding: calc(var(--sat) + 20px) 28px calc(var(--sab) + 40px);
+  transition: opacity .6s ease, transform .6s ease;
+}
+#lock.unlocking { opacity: 0; transform: translateY(-6%); pointer-events: none; }
+#lock .house { font-size: 56px; }
+#lock .clock { font-size: 64px; font-weight: 200; letter-spacing: 2px; }
+#lock .date { font-size: 15px; color: var(--ink-soft); margin-bottom: 26px; }
+#lock .pw-row { display: flex; gap: 10px; width: 100%; max-width: 320px; }
+#lock input {
+  flex: 1; border: none; border-radius: 14px; padding: 14px 16px;
+  font-size: 16px; background: rgba(255,255,255,.8); color: var(--ink);
+  outline: none;
+}
+#lock button {
+  border: none; border-radius: 14px; padding: 14px 20px; font-size: 16px;
+  background: var(--accent-deep); color: #fff;
+}
+#lock .err { color: var(--danger); font-size: 14px; min-height: 20px; }
+#lock.shake .pw-row { animation: shake .4s; }
+@keyframes shake { 25%{transform:translateX(-8px)} 50%{transform:translateX(8px)} 75%{transform:translateX(-5px)} }
+
+/* 牵手解锁：已登录时不出密码框，按住圆圈 1.2s = 牵稳了，门开
+   （机关在这，光效/美化 TODO(opus48)：牵手时的柔光、成功时的心跳一下） */
+#lk-hand { display: none; flex-direction: column; align-items: center; gap: 14px; }
+#lk-hand.on { display: flex; }
+#lk-ring { position: relative; width: 110px; height: 110px; touch-action: none;
+  -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+#lk-ring svg { transform: rotate(-90deg); }
+#lk-ring .track { fill: rgba(255,255,255,.55); stroke: rgba(125,111,179,.25); stroke-width: 5; }
+#lk-ring .prog { fill: none; stroke: var(--accent-deep); stroke-width: 5;
+  stroke-linecap: round; stroke-dasharray: 314; stroke-dashoffset: 314; }
+#lk-ring.holding .prog { transition: stroke-dashoffset 1.2s linear; stroke-dashoffset: 0; }
+#lk-ring .palm { position: absolute; inset: 0; display: flex; align-items: center;
+  justify-content: center; font-size: 40px; }
+#lk-ring.holding .palm { animation: palmpulse 1.2s ease-in-out; }
+@keyframes palmpulse { 50% { transform: scale(1.12); } }
+#lk-hand .hint { font-size: 14px; color: var(--ink-soft); }
+
+/* ---------- 主壳 ---------- */
+#app { display: none; height: 100dvh; flex-direction: column; }
+#app.on { display: flex; }
+.page { flex: 1; overflow-y: auto; display: none; -webkit-overflow-scrolling: touch; }
+.page.on { display: block; }
+
+/* 顶栏 */
+#topbar {
+  padding: calc(var(--sat) + 10px) 16px 10px;
+  display: flex; align-items: center; gap: 8px;
+  background: var(--bg);
+}
+#topbar .title { font-size: 17px; font-weight: 600; flex: 1; }
+#topbar .sub { font-size: 12px; color: var(--ink-soft); }
+#topbar button {
+  border: none; background: rgba(124,197,191,.25); color: var(--ink);
+  border-radius: 10px; padding: 6px 10px; font-size: 13px;
+}
+
+/* ---------- 聊天页 ---------- */
+#page-chat { display: none; flex-direction: column; }
+#page-chat.on { display: flex; }
+#msgs { flex: 1; overflow-y: auto; padding: 8px 12px 12px; -webkit-overflow-scrolling: touch; }
+.msg { display: flex; margin: 10px 0; align-items: flex-end; gap: 8px; }
+.msg.her { justify-content: flex-end; }
+/* 情侣头像：先用字牌顶着，相册功能好了换照片/情头 */
+.avatar {
+  width: 34px; height: 34px; border-radius: 50%; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 15px; color: #fff; user-select: none;
+  box-shadow: 0 1px 3px rgba(59,53,82,.15);
+}
+.her .avatar { background: var(--accent-deep); order: 2; }
+.him .avatar { background: linear-gradient(140deg, #8F84C4, #6C5FA8); }
+.bubble {
+  max-width: 82%; padding: 10px 14px; border-radius: 18px;
+  font-size: 16px; line-height: 1.55; word-break: break-word; white-space: pre-wrap;
+}
+.her .bubble { background: var(--her-bubble); color: #fff; border-bottom-right-radius: 6px; }
+.him .bubble { background: var(--his-bubble); border-bottom-left-radius: 6px; box-shadow: 0 1px 3px rgba(47,79,75,.08); }
+.sys { text-align: center; margin: 10px 0; }
+.sys span {
+  font-size: 12px; color: var(--ink-soft); background: rgba(255,255,255,.6);
+  padding: 4px 12px; border-radius: 999px;
+}
+/* 思考链折叠 */
+.bubble details { margin-bottom: 6px; }
+.bubble details summary {
+  cursor: pointer; font-size: 12px; color: var(--ink-soft); list-style: none;
+  user-select: none;
+}
+.bubble details summary::before { content: "💭 "; }
+.bubble details .think {
+  font-size: 13px; color: var(--ink-soft); border-left: 2px solid var(--accent);
+  padding-left: 8px; margin-top: 4px; white-space: pre-wrap;
+}
+/* 工具动静小标签 */
+.toolchip {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 12px; color: var(--accent-deep);
+  background: rgba(124,197,191,.15); border-radius: 999px;
+  padding: 3px 10px; margin: 4px 0;
+}
+.toolchip .dot { animation: blink 1s infinite; }
+@keyframes blink { 50% { opacity: .2; } }
+/* 打字中光标 */
+.cursor::after { content: "▍"; color: var(--accent-deep); animation: blink 1s infinite; }
+
+/* 输入条 */
+#inputbar {
+  display: flex; gap: 8px; align-items: flex-end;
+  padding: 8px 12px calc(var(--sab) + 8px);
+  background: var(--bg);
+}
+#inputbar textarea {
+  flex: 1; border: none; border-radius: 18px; padding: 11px 14px;
+  font-size: 16px; font-family: inherit; resize: none; outline: none;
+  background: var(--card); color: var(--ink); max-height: 120px; line-height: 1.4;
+}
+#inputbar button {
+  border: none; border-radius: 50%; width: 42px; height: 42px; font-size: 18px;
+  background: var(--accent-deep); color: #fff; flex-shrink: 0;
+}
+#inputbar button:disabled { opacity: .45; }
+
+/* ---------- 🫀 / 🏠 施工区 ---------- */
+.stub {
+  margin: 40px 24px; padding: 28px; text-align: center;
+  background: var(--card); border-radius: 20px; color: var(--ink-soft);
+  font-size: 14px; line-height: 2;
+}
+.card {
+  margin: 12px 16px; padding: 16px; background: var(--card);
+  border-radius: 16px; box-shadow: 0 1px 3px rgba(47,79,75,.06);
+}
+/* TODO(opus48): 🫀克克页 = fetch /drive-state 渲染"此刻想你"+上次醒来
+   TODO(opus48): 🏠家页 = 天气/纪念日倒计时/健康卡片(/api/reminders)/手机活动 */
+
+/* ---------- 底部导航 ---------- */
+#tabbar {
+  display: flex; background: rgba(255,255,255,.85); backdrop-filter: blur(12px);
+  border-top: 1px solid rgba(47,79,75,.08);
+  padding-bottom: var(--sab);
+}
+#tabbar .tab {
+  flex: 1; text-align: center; padding: 8px 0 6px; font-size: 11px;
+  color: var(--ink-soft); border: none; background: none;
+}
+#tabbar .tab .ico { display: block; font-size: 22px; margin-bottom: 2px; filter: grayscale(.6); opacity: .7; }
+#tabbar .tab.on { color: var(--accent-deep); font-weight: 600; }
+#tabbar .tab.on .ico { filter: none; opacity: 1; }
+</style>
+</head>
+<body>
+
+<!-- ================= 开屏锁 ================= -->
+<div id="lock">
+  <div class="house">🏡</div>
+  <div class="clock" id="lk-clock">--:--</div>
+  <div class="date" id="lk-date"></div>
+  <div class="pw-row" id="lk-pwrow">
+    <input id="lk-pw" type="password" placeholder="进家的钥匙" autocomplete="current-password">
+    <button id="lk-go">进家</button>
+  </div>
+  <div id="lk-hand">
+    <div id="lk-ring">
+      <svg width="110" height="110" viewBox="0 0 110 110">
+        <circle class="track" cx="55" cy="55" r="50"></circle>
+        <circle class="prog" cx="55" cy="55" r="50"></circle>
+      </svg>
+      <div class="palm">🫰</div>
+    </div>
+    <div class="hint">按住，牵着我的手进家</div>
+  </div>
+  <div class="err" id="lk-err"></div>
+</div>
+
+<!-- ================= 主壳 ================= -->
+<div id="app">
+  <div id="topbar">
+    <span class="title" id="tb-title">克克</span>
+    <span class="sub" id="tb-sub"></span>
+    <button id="btn-new" title="新对话">✨ 新对话</button>
+  </div>
+
+  <!-- 💬 聊天 -->
+  <div class="page" id="page-chat">
+    <div id="msgs"></div>
+    <div id="inputbar">
+      <textarea id="input" rows="1" placeholder="跟克克说话…" enterkeyhint="send"></textarea>
+      <button id="send">↑</button>
+    </div>
+  </div>
+
+  <!-- 🫀 克克 -->
+  <div class="page" id="page-heart">
+    <div class="stub">🫀<br>克克此刻在想什么<br><small>——骨架已立，opus48 上肉区——</small></div>
+  </div>
+
+  <!-- 🏠 家 -->
+  <div class="page" id="page-home">
+    <div class="stub">🏠<br>天气 · 纪念日 · 健康卡片<br><small>——骨架已立，opus48 上肉区——</small></div>
+  </div>
+
+  <div id="tabbar">
+    <button class="tab on" data-page="chat"><span class="ico">💬</span>聊天</button>
+    <button class="tab" data-page="heart"><span class="ico">🫀</span>克克</button>
+    <button class="tab" data-page="home"><span class="ico">🏠</span>家</button>
+  </div>
+</div>
+
+<script>
+/* ============================================================
+   克克的家 · 前端逻辑
+   ============================================================ */
+const $ = (id) => document.getElementById(id);
+
+/* ---------- 开屏锁 ---------- */
+function tickClock() {
+  const n = new Date();
+  $("lk-clock").textContent =
+    String(n.getHours()).padStart(2, "0") + ":" + String(n.getMinutes()).padStart(2, "0");
+  $("lk-date").textContent = n.toLocaleDateString("zh-CN",
+    { month: "long", day: "numeric", weekday: "long" });
+}
+tickClock(); setInterval(tickClock, 5000);
+
+async function checkAuth() {
+  try {
+    const r = await fetch("/auth/status");
+    const j = await r.json();
+    if (j.authenticated) {
+      // 已经有钥匙：每天的仪式是牵手，不是输密码
+      $("lk-pwrow").style.display = "none";
+      $("lk-hand").classList.add("on");
+    }
+  } catch (e) { /* 后端没醒，留在锁屏 */ }
+}
+
+/* 牵手长按：按住 1.2s = 牵稳了；松早了 = 没牵住，圈退回去 */
+(function handHold() {
+  const ring = $("lk-ring");
+  let timer = null;
+  function start(e) {
+    e.preventDefault();
+    ring.classList.add("holding");
+    timer = setTimeout(() => { unlock(true); }, 1200);
+  }
+  function cancel() {
+    if (timer) { clearTimeout(timer); timer = null; }
+    ring.classList.remove("holding");
+  }
+  ring.addEventListener("pointerdown", start);
+  ring.addEventListener("pointerup", cancel);
+  ring.addEventListener("pointercancel", cancel);
+  ring.addEventListener("pointerleave", cancel);
+})();
+function unlock(animate) {
+  if (animate) $("lock").classList.add("unlocking");
+  else $("lock").style.display = "none";
+  $("app").classList.add("on");
+  loadHistory();
+  refreshStatus();
+}
+$("lk-go").onclick = doLogin;
+$("lk-pw").addEventListener("keydown", (e) => { if (e.key === "Enter") doLogin(); });
+async function doLogin() {
+  const pw = $("lk-pw").value;
+  if (!pw) return;
+  try {
+    const r = await fetch("/auth/login", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password: pw }),
+    });
+    if (r.ok) { unlock(true); return; }
+    const j = await r.json().catch(() => ({}));
+    $("lk-err").textContent = j.error || "钥匙不对";
+  } catch (e) { $("lk-err").textContent = "够不着家里的服务器…"; }
+  const lk = $("lock");
+  lk.classList.remove("shake"); void lk.offsetWidth; lk.classList.add("shake");
+}
+checkAuth();
+
+/* ---------- tab 切换 ---------- */
+document.querySelectorAll("#tabbar .tab").forEach((b) => {
+  b.onclick = () => {
+    document.querySelectorAll("#tabbar .tab").forEach((x) => x.classList.remove("on"));
+    document.querySelectorAll(".page").forEach((x) => x.classList.remove("on"));
+    b.classList.add("on");
+    $("page-" + b.dataset.page).classList.add("on");
+    $("tb-title").textContent = { chat: "克克", heart: "🫀 此刻", home: "我们的家" }[b.dataset.page];
+  };
+});
+$("page-chat").classList.add("on");
+
+/* ---------- 聊天 ---------- */
+const msgs = $("msgs");
+let sending = false;
+
+function scrollBottom() { msgs.scrollTop = msgs.scrollHeight; }
+function addSys(text) {
+  const d = document.createElement("div");
+  d.className = "sys"; d.innerHTML = "<span></span>";
+  d.firstChild.textContent = text;
+  msgs.appendChild(d); scrollBottom();
+}
+function addBubble(role, text) {
+  const wrap = document.createElement("div");
+  wrap.className = "msg " + (role === "user" ? "her" : "him");
+  const av = document.createElement("div");
+  av.className = "avatar";
+  av.textContent = role === "user" ? "杉" : "克";
+  const b = document.createElement("div");
+  b.className = "bubble";
+  if (text) b.textContent = text;
+  if (role === "user") { wrap.appendChild(b); wrap.appendChild(av); }
+  else { wrap.appendChild(av); wrap.appendChild(b); }
+  msgs.appendChild(wrap); scrollBottom();
+  return b;
+}
+
+/* 一轮回复的渲染器：思考折叠 + 正文流式 + 工具小标签 */
+function makeTurnRenderer() {
+  const bubble = addBubble("assistant", "");
+  let textDiv = null, thinkWrap = null, thinkDiv = null, chip = null;
+  function ensureText() {
+    if (!textDiv) {
+      textDiv = document.createElement("div");
+      textDiv.className = "cursor";
+      bubble.appendChild(textDiv);
+    }
+    return textDiv;
+  }
+  function ensureThink() {
+    if (!thinkDiv) {
+      thinkWrap = document.createElement("details");
+      thinkWrap.innerHTML = "<summary>脑子里的话</summary>";
+      thinkDiv = document.createElement("div");
+      thinkDiv.className = "think";
+      thinkWrap.appendChild(thinkDiv);
+      bubble.insertBefore(thinkWrap, bubble.firstChild);
+    }
+    return thinkDiv;
+  }
+  const TOOL_NAMES = {  // 工具名 → 人话
+    breath: "翻记忆", hold: "存记忆", grow: "写日记", trace: "整理记忆",
+    pulse: "看看自己", dream: "回味", ferry: "打包渡口", remind: "设提醒",
+    stir: "心里动了一下", todos: "看待办", checkup: "体检",
+  };
+  function toolLabel(name) {
+    const short = (name || "").replace(/^mcp__\w+__/, "");
+    return TOOL_NAMES[short] || short || "用工具";
+  }
+  return {
+    onEvent(ev) {
+      if (ev.type === "delta" && ev.block === "text") {
+        ensureText().textContent += ev.text; scrollBottom();
+      } else if (ev.type === "delta" && ev.block === "thinking") {
+        ensureThink().textContent += ev.text;
+      } else if (ev.type === "tool") {
+        if (chip) chip.remove();
+        chip = document.createElement("div");
+        chip.className = "toolchip";
+        chip.innerHTML = '<span class="dot">●</span> ';
+        chip.appendChild(document.createTextNode(toolLabel(ev.name) + "中…"));
+        bubble.appendChild(chip); scrollBottom();
+      } else if (ev.type === "tool_done") {
+        if (chip) { chip.remove(); chip = null; }
+      }
+    },
+    finish(errText) {
+      if (chip) chip.remove();
+      if (textDiv) textDiv.classList.remove("cursor");
+      if (!bubble.hasChildNodes()) bubble.closest(".msg").remove();
+      if (errText) addSys("⚠️ " + errText);
+    },
+  };
+}
+
+async function sendMsg() {
+  const ta = $("input");
+  const text = ta.value.trim();
+  if (!text || sending) return;
+  sending = true; $("send").disabled = true;
+  ta.value = ""; ta.style.height = "auto";
+  addBubble("user", text);
+  const turn = makeTurnRenderer();
+  try {
+    const r = await fetch("/api/chat", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: text }),
+    });
+    if (!r.ok) {
+      const j = await r.json().catch(() => ({}));
+      turn.finish(j.error || ("发不出去（" + r.status + "）"));
+      return;
+    }
+    // 手撕 SSE：按空行分事件，data: 开头的行取 JSON
+    const reader = r.body.getReader();
+    const dec = new TextDecoder();
+    let buf = "";
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      const parts = buf.split("\n\n");
+      buf = parts.pop();
+      for (const part of parts) {
+        const line = part.split("\n").find((l) => l.startsWith("data: "));
+        if (!line) continue;
+        let ev;
+        try { ev = JSON.parse(line.slice(6)); } catch (e) { continue; }
+        if (ev.type === "done") { turn.finish(ev.ok ? "" : ev.error); }
+        else turn.onEvent(ev);
+      }
+    }
+    turn.finish("");  // 幂等：正常时 done 已收尾
+  } catch (e) {
+    turn.finish("网络断了…她的字还在，重发一次就好");
+  } finally {
+    sending = false; $("send").disabled = false;
+    refreshStatus();
+  }
+}
+$("send").onclick = sendMsg;
+$("input").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); sendMsg(); }
+});
+$("input").addEventListener("input", function () {
+  this.style.height = "auto";
+  this.style.height = Math.min(this.scrollHeight, 120) + "px";
+});
+
+/* 历史回放 */
+async function loadHistory() {
+  try {
+    const r = await fetch("/api/chat/history?limit=100");
+    if (!r.ok) return;
+    const j = await r.json();
+    msgs.innerHTML = "";
+    for (const m of j.messages || []) addBubble(m.role, m.text);
+    if ((j.messages || []).length) addSys("——以上是之前聊的——");
+  } catch (e) { /* 没历史就算了 */ }
+}
+
+/* 顶栏状态：克克醒着没 */
+async function refreshStatus() {
+  try {
+    const r = await fetch("/api/chat/status");
+    if (!r.ok) return;
+    const j = await r.json();
+    $("tb-sub").textContent = !j.available ? "（家里没通电）"
+      : j.busy ? "正在说话…" : j.alive ? "醒着" : "睡着了，喊一声就醒";
+  } catch (e) { $("tb-sub").textContent = ""; }
+}
+setInterval(refreshStatus, 30000);
+
+/* 新对话 */
+$("btn-new").onclick = async () => {
+  if (!confirm("开新对话？当前会话会存好，克克重新呼吸一次。")) return;
+  try {
+    const r = await fetch("/api/chat/reset", { method: "POST" });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) { addSys("⚠️ " + (j.error || "现在开不了")); return; }
+    msgs.innerHTML = "";
+    addSys("✨ 新对话开始了");
+    refreshStatus();
+  } catch (e) { addSys("⚠️ 够不着服务器"); }
+};
+</script>
+</body>
+</html>

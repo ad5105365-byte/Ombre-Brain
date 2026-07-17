@@ -635,19 +635,17 @@ const NOTES = [
   $("lk-note").textContent = NOTES[idx];
 })();
 
-// 锁屏仪式开关：杉杉调试期先关（2026-07-18，为了痛快刷新看效果）。
-// 想恢复"每天牵手开门"的仪式感，把这行改回 false 即可。
-const LOCK_OFF = true;
+// 调试期：无视"8小时免解锁"，每次刷新都显示牵手仪式给杉杉看（2026-07-18）。
+// 看够了改回 false，就恢复"8小时内牵过手就直接进门"的正常体验。
+const FORCE_RITUAL = true;
 
 async function checkAuth() {
   try {
     const r = await fetch("/auth/status");
     const j = await r.json();
     if (j.authenticated) {
-      // 关了仪式：已鉴权就直接进门，不牵手不输密码
-      if (LOCK_OFF) { unlock(false); return; }
-      // 8小时内牵过手：门直接开，不重复仪式
-      if (Date.now() < (+localStorage.getItem("kk_unlock_until") || 0)) { unlock(false); return; }
+      // 8小时内牵过手：门直接开，不重复仪式（FORCE_RITUAL 时跳过这个免解锁）
+      if (!FORCE_RITUAL && Date.now() < (+localStorage.getItem("kk_unlock_until") || 0)) { unlock(false); return; }
       // 已经有钥匙：每天的仪式是牵手，不是输密码
       $("lk-pwrow").style.display = "none";
       $("lk-hand").classList.add("on");

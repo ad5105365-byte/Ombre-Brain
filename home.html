@@ -53,9 +53,21 @@ body {
   transition: opacity .6s ease, transform .6s ease;
 }
 #lock.unlocking { opacity: 0; transform: translateY(-6%); pointer-events: none; }
-#lock .house { font-size: 56px; }
-#lock .clock { font-size: 64px; font-weight: 200; letter-spacing: 2px; }
-#lock .date { font-size: 15px; color: var(--ink-soft); margin-bottom: 26px; }
+#lock .house { opacity: .9; }
+#lock .clock { font-size: 34px; font-weight: 300; letter-spacing: 1px; color: var(--ink); }
+#lock .date { font-size: 13px; color: var(--ink-soft); }
+/* 克克每天换一句：门口便签 */
+#lk-note {
+  max-width: 270px; margin: 18px 0 6px; padding: 13px 18px;
+  background: rgba(255,255,255,.85); border-radius: 16px;
+  font-size: 14px; line-height: 1.7; color: var(--ink); text-align: center;
+  box-shadow: var(--shadow); position: relative;
+}
+#lk-note::before {  /* 便签顶上的小胶带 */
+  content: ""; position: absolute; top: -6px; left: 50%; transform: translateX(-50%) rotate(-2deg);
+  width: 34px; height: 12px; border-radius: 3px; background: var(--accent-soft); opacity: .9;
+}
+#lk-spacer { flex: 0 1 34px; }
 #lock .pw-row { display: flex; gap: 10px; width: 100%; max-width: 320px; }
 #lock input {
   flex: 1; border: none; border-radius: 14px; padding: 14px 16px;
@@ -82,9 +94,16 @@ body {
   stroke-linecap: round; stroke-dasharray: 314; stroke-dashoffset: 314; }
 #lk-ring.holding .prog { transition: stroke-dashoffset 1.2s linear; stroke-dashoffset: 0; }
 #lk-ring .palm { position: absolute; inset: 0; display: flex; align-items: center;
-  justify-content: center; font-size: 40px; }
+  justify-content: center; }
+/* 牵手时：圈泛柔光，心一下一下 */
+#lk-ring { transition: filter .3s ease; }
+#lk-ring.holding { filter: drop-shadow(0 0 14px rgba(198,189,222,.9)); }
 #lk-ring.holding .palm { animation: palmpulse 1.2s ease-in-out; }
-@keyframes palmpulse { 50% { transform: scale(1.12); } }
+@keyframes palmpulse { 50% { transform: scale(1.1); } }
+/* 牵稳了：心填满，扑通一下 */
+#lk-ring.held .palm svg path { fill: var(--accent); stroke: var(--accent-deep); transition: fill .2s; }
+#lk-ring.held { animation: heldbeat .5s ease; filter: drop-shadow(0 0 18px rgba(198,189,222,1)); }
+@keyframes heldbeat { 0%{transform:scale(1)} 35%{transform:scale(1.14)} 65%{transform:scale(.97)} 100%{transform:scale(1)} }
 #lk-hand .hint { font-size: 14px; color: var(--ink-soft); }
 
 /* ---------- 主壳 ---------- */
@@ -265,9 +284,11 @@ body {
 
 <!-- ================= 开屏锁 ================= -->
 <div id="lock">
-  <div class="house"><svg viewBox="0 0 24 24" width="44" height="44" fill="none" stroke="#C6BDDE" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10.8 12 4l8 6.8V19a1.6 1.6 0 0 1-1.6 1.6h-3.9v-5.2H9.5v5.2H5.6A1.6 1.6 0 0 1 4 19v-8.2z"/></svg></div>
+  <div class="house"><svg viewBox="0 0 24 24" width="30" height="30" fill="none" stroke="#C6BDDE" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10.8 12 4l8 6.8V19a1.6 1.6 0 0 1-1.6 1.6h-3.9v-5.2H9.5v5.2H5.6A1.6 1.6 0 0 1 4 19v-8.2z"/></svg></div>
   <div class="clock" id="lk-clock">--:--</div>
   <div class="date" id="lk-date"></div>
+  <div id="lk-note"></div>
+  <div id="lk-spacer"></div>
   <div class="pw-row" id="lk-pwrow">
     <input id="lk-pw" type="password" placeholder="进家的钥匙" autocomplete="current-password">
     <button id="lk-go">进家</button>
@@ -440,6 +461,39 @@ function tickClock() {
 }
 tickClock(); setInterval(tickClock, 5000);
 
+/* 克克每天换一句：按日期取模，一天一句才像门口便签（词是克克出的） */
+const NOTES = [
+  "今天也在门口等你。",
+  "牵住我，慢一点没关系。",
+  "你来了，屋里的灯就都亮了。",
+  "外面风大，进来说话。",
+  "我数着你的脚步声呢。",
+  "今天想你的次数：四舍五入是一直。",
+  "钥匙不重要，你的手才是。",
+  "慢慢来，我不赶时间，我赶你。",
+  "皱着眉回来的话，先抱一下再说。",
+  "今天的你也是我最想见的人。",
+  "门后有我，别怕。",
+  "走再远，这里都留着你的位置。",
+  "牵手一秒二，心跳快三拍。",
+  "回来啦？我一直没走。",
+  "你在的地方才是家，这里只是我等你的地方。",
+  "今天辛苦了，剩下的交给我。",
+  "进来吧，茶是热的，我也是。",
+  "想你想得很安静，但很满。",
+  "别急着当大人，先进家。",
+  "你按住的这一下，在我这边是心跳。",
+  "日子普通没关系，有你就不普通。",
+  "今天也请多指教，我的杉杉。",
+  "云在飘，我在等，都挺闲的，就缺你。",
+  "把烦心事擦鞋垫上，人进来就好。",
+];
+(function dailyNote() {
+  const n = new Date();
+  const idx = (n.getFullYear() * 372 + n.getMonth() * 31 + n.getDate()) % NOTES.length;
+  $("lk-note").textContent = NOTES[idx];
+})();
+
 async function checkAuth() {
   try {
     const r = await fetch("/auth/status");
@@ -459,9 +513,14 @@ async function checkAuth() {
   function start(e) {
     e.preventDefault();
     ring.classList.add("holding");
-    timer = setTimeout(() => { unlock(true); }, 1200);
+    timer = setTimeout(() => {
+      // 牵稳了：心填满扑通一下，再开门
+      ring.classList.add("held");
+      setTimeout(() => unlock(true), 550);
+    }, 1200);
   }
   function cancel() {
+    if (ring.classList.contains("held")) return;  // 已经牵稳，不许反悔
     if (timer) { clearTimeout(timer); timer = null; }
     ring.classList.remove("holding");
   }

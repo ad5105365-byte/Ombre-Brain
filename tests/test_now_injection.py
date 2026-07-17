@@ -139,3 +139,45 @@ async def test_recall_carries_time():
     body = response.body.decode("utf-8")
     assert "⏰ 深圳现在：" in body
     assert body.rstrip().endswith("</心记浮现>")
+
+
+# --- 心情打卡：下次开口前冒一句人话（checkin_store 接线，见 server._checkin_pending_line）---
+
+def test_checkin_pending_line_swallows_exceptions(monkeypatch):
+    monkeypatch.setattr(server.checkin_store, "pending_line",
+                        MagicMock(side_effect=RuntimeError("boom")))
+    assert server._checkin_pending_line() is None
+
+
+@pytest.mark.asyncio
+async def test_recall_gated_carries_pending_checkin(monkeypatch):
+    """suppress/tool_only 短路分支也得带上待办打卡——那是最常触发的分支。"""
+    monkeypatch.setattr(server, "_route_query", MagicMock(return_value="suppress"))
+    monkeypatch.setattr(server, "_checkin_pending_line",
+                        MagicMock(return_value="杉杉刚打卡——心情「emo」，她说：有点累"))
+    response = await server.recall_hook(_FakeRequest())
+    body = response.body.decode("utf-8")
+    assert "💬 [打卡] 杉杉刚打卡——心情「emo」，她说：有点累" in body
+    assert body.rstrip().endswith("</心记浮现>")
+
+
+@pytest.mark.asyncio
+async def test_recall_gated_silent_without_pending_checkin(monkeypatch):
+    monkeypatch.setattr(server, "_route_query", MagicMock(return_value="suppress"))
+    monkeypatch.setattr(server, "_checkin_pending_line", MagicMock(return_value=None))
+    response = await server.recall_hook(_FakeRequest())
+    assert "打卡" not in response.body.decode("utf-8")
+
+
+@pytest.mark.asyncio
+async def test_recall_normal_route_carries_pending_checkin(monkeypatch):
+    match = _bucket("r1", "昨天", "干净的内容")
+    monkeypatch.setattr(server, "_checkin_pending_line",
+                        MagicMock(return_value="杉杉刚打卡，她说：今天写完了论文"))
+    with patch.object(server.bucket_mgr, "search", AsyncMock(return_value=[match])), \
+         patch.object(server.embedding_engine, "search_similar", AsyncMock(return_value=[])), \
+         patch.object(server.bucket_mgr, "touch", AsyncMock()), \
+         patch.object(server.dehydrator, "dehydrate", AsyncMock(return_value="干净摘要")):
+        response = await server.recall_hook(_FakeRequest())
+    body = response.body.decode("utf-8")
+    assert "💬 [打卡] 杉杉刚打卡，她说：今天写完了论文" in body

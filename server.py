@@ -448,6 +448,16 @@ def _phone_recent_line() -> str | None:
         return None
 
 
+def _checkin_pending_line() -> str | None:
+    """还没告诉过克克的最近一次心情打卡，一行——读到即消费，只提一次。
+    喂给 /recall-hook 的 <心记浮现> 和「主动找你」的引信，跟手机活动/欲望
+    心声同一套"一句人话，不含数值"的注入方式。见 checkin_store.py。"""
+    try:
+        return checkin_store.pending_line(bucket_mgr.base_dir, datetime.now(_DIARY_TZ))
+    except Exception:
+        return None
+
+
 def _minutes_since_phone() -> float | None:
     """她最后一次碰手机到现在多少分钟——「主动找你」判断她醒着没的信号。
     没 token / 没数据 → None（让 reach 退回钟点兜底）。"""
@@ -1063,6 +1073,7 @@ def _is_hot(meta: dict) -> bool:
 # =============================================================
 import drive as drive_mod
 import drive_store
+import checkin_store
 
 OMBRE_DRIVE_ENABLE = os.environ.get("OMBRE_DRIVE_ENABLE", "0").strip().lower() in (
     "1", "true", "yes", "on")
@@ -1213,6 +1224,9 @@ async def recall_hook(request):
             phone_line = _phone_recent_line()
             if phone_line:
                 now_block += "\n" + phone_line
+            checkin_line = _checkin_pending_line()
+            if checkin_line:
+                now_block += f"\n💬 [打卡] {checkin_line}"
             result = f"<心记浮现>\n{now_block}\n</心记浮现>"
             _log_hook("recall", f"gated:{route}", user_msg, 0, len(result), started=t0)
             return PlainTextResponse(result)
@@ -1354,6 +1368,9 @@ async def recall_hook(request):
         phone_line = _phone_recent_line()
         if phone_line:
             now_block += "\n" + phone_line
+        checkin_line = _checkin_pending_line()
+        if checkin_line:
+            now_block += f"\n💬 [打卡] {checkin_line}"
         # 数值过阈值的 retrieve 轮，按需（~一半概率，免得复读机）冒一句推力心声，
         # 让占有/馋/渴/气真推我动，而不只是开机那一下。
         push = _drive_push_line(drive_state)
@@ -3742,8 +3759,11 @@ async def _maybe_reach(force: bool = False, dry_run: bool = False) -> dict:
 
     # 真找她：组藏头引信（历史里看不见）→ 叫醒克克 → 收他说出口那句
     intent_line = drive_mod.render_intent(dim, val)
-    prompt = reach_store.build_reach_prompt(
-        _now_line(), _phone_recent_line(), intent_line)
+    phone_line = _phone_recent_line()
+    checkin_line = _checkin_pending_line()  # 她走开前若打过卡，顺手带上，别错过
+    if checkin_line:
+        phone_line = (phone_line + "\n" if phone_line else "") + f"💬 {checkin_line}"
+    prompt = reach_store.build_reach_prompt(_now_line(), phone_line, intent_line)
     try:
         spoke_ok, said = await bridge.ask_collect(prompt)
     except Exception as e:
@@ -3873,6 +3893,28 @@ async def serve_sw(request):
             return Response(f.read(), media_type="application/javascript")
     except FileNotFoundError:
         return Response("// not found", status_code=404, media_type="application/javascript")
+
+
+_ICON_MIME = {".png": "image/png", ".svg": "image/svg+xml",
+              ".ico": "image/x-icon", ".webp": "image/webp"}
+
+
+@mcp.custom_route("/icons/{name}", methods=["GET"])
+async def serve_icon(request):
+    """PWA 图标（icons/ 目录）。仅发白名单后缀，防目录穿越。"""
+    from starlette.responses import Response
+    import os
+    name = os.path.basename(request.path_params.get("name", ""))
+    ext = os.path.splitext(name)[1].lower()
+    if ext not in _ICON_MIME:
+        return Response("not found", status_code=404)
+    path = os.path.join(os.path.dirname(__file__), "icons", name)
+    try:
+        with open(path, "rb") as f:
+            return Response(f.read(), media_type=_ICON_MIME[ext],
+                            headers={"Cache-Control": "public, max-age=604800"})
+    except FileNotFoundError:
+        return Response("not found", status_code=404)
 
 
 @mcp.custom_route("/api/config", methods=["GET"])
@@ -4758,6 +4800,58 @@ async def api_avatars_get(request):
         })
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
+
+
+# =============================================================
+# Mood Check-in API — 心情打卡直达克克
+# 打卡API — 心情/一句话
+#
+# 之前"打卡"是纯前端玩具：home.html 的 mood-row 只写 localStorage，
+# 回的话是本地一张写死的台词表随机抽，从没送到后端、更没让克克知道
+# （见 home.html:1067 起 `/* 今日心情打卡：本地存，克克回一句 */`）。
+#
+# 这里补上真正的后端落点：POST 存一条心情+文字+时间；不直接怼进
+# 任何 prompt——而是走跟 phone_line/drive push line 一样的路子，
+# 由 checkin_store.pending_line() 在她下次真正和克克说话时
+# （/recall-hook 每轮都跑）冒一句人话告诉他"你刚打卡了"，读一次就
+# 消费掉，不重复念叨。「主动找你」心跳真要开口时也会顺手带上。
+# 铁律照旧：这里存的是文字，喂给克克的也只是一句人话，没有任何数值。
+# =============================================================
+@mcp.custom_route("/api/checkin", methods=["POST"])
+async def api_checkin_create(request):
+    """打卡：记一次心情/一句话。mood 和 text 至少给一个非空。"""
+    from starlette.responses import JSONResponse
+    err = _require_auth(request)
+    if err: return err
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "Invalid JSON"}, status_code=400)
+
+    mood = body.get("mood") or ""
+    text = body.get("text") or ""
+    try:
+        rec = checkin_store.record_checkin(
+            bucket_mgr.base_dir, mood, text, datetime.now(_DIARY_TZ))
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+    return JSONResponse({"ok": True, "mood": rec["mood"], "text": rec["text"], "ts": rec["ts"]})
+
+
+@mcp.custom_route("/api/checkin", methods=["GET"])
+async def api_checkin_latest(request):
+    """读最近一次打卡记录——给前端展示"今天打没打过"用。不影响它有没有
+    被喂给克克（那是 consumed 字段管的，读这个接口不会消费它）。"""
+    from starlette.responses import JSONResponse
+    err = _require_auth(request)
+    if err: return err
+    try:
+        rec = checkin_store.load_checkin(bucket_mgr.base_dir)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+    return JSONResponse({"mood": rec.get("mood", ""), "text": rec.get("text", ""), "ts": rec.get("ts", "")})
 
 
 # --- Entry point / 启动入口 ---

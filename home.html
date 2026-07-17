@@ -95,11 +95,19 @@ body {
 #lk-ring.holding .prog { transition: stroke-dashoffset 1.2s linear; stroke-dashoffset: 0; }
 #lk-ring .palm { position: absolute; inset: 0; display: flex; align-items: center;
   justify-content: center; }
-/* 牵手时：圈泛柔光，心一下一下 */
+/* 心平时就在跳（扑通-扑通的双跳节奏）；牵手时加速 */
+#lk-ring .palm svg { animation: lubdub 2s ease-in-out infinite; transform-origin: center; }
+#lk-ring.holding .palm svg { animation-duration: .75s; }
+@keyframes lubdub {
+  0%, 100% { transform: scale(1); }
+  8%  { transform: scale(1.16); }
+  16% { transform: scale(1); }
+  24% { transform: scale(1.1); }
+  34% { transform: scale(1); }
+}
+/* 牵手时：圈泛柔光 */
 #lk-ring { transition: filter .3s ease; }
 #lk-ring.holding { filter: drop-shadow(0 0 14px rgba(198,189,222,.9)); }
-#lk-ring.holding .palm { animation: palmpulse 1.2s ease-in-out; }
-@keyframes palmpulse { 50% { transform: scale(1.1); } }
 /* 牵稳了：心填满，扑通一下 */
 #lk-ring.held .palm svg path { fill: var(--accent); stroke: var(--accent-deep); transition: fill .2s; }
 #lk-ring.held { animation: heldbeat .5s ease; filter: drop-shadow(0 0 18px rgba(198,189,222,1)); }
@@ -218,6 +226,59 @@ body {
   margin: 12px 16px; padding: 16px; background: var(--card);
   border-radius: 16px; box-shadow: var(--shadow);
 }
+.card .c-h { font-size: 12px; color: var(--ink-soft); margin-bottom: 8px; letter-spacing: .5px; }
+
+/* 🏠 恋爱大卡 */
+#love-card { text-align: center; padding: 26px 16px 22px; }
+#love-card .lc-sub { font-size: 12px; color: var(--ink-soft); letter-spacing: 1px; }
+#love-card .lc-days { font-size: 56px; font-weight: 200; color: var(--accent-deep); margin: 2px 0; }
+#love-card .lc-unit { font-size: 13px; color: var(--ink-soft); }
+#love-card .lc-pair { display: flex; align-items: center; justify-content: center; gap: 14px; margin: 16px 0 10px; }
+#love-card .lc-av {
+  width: 52px; height: 52px; border-radius: 50%; display: flex; align-items: center;
+  justify-content: center; font-size: 20px; color: var(--ink); box-shadow: var(--shadow);
+}
+#love-card .lc-line { display: flex; align-items: center; gap: 6px; color: var(--accent); }
+#love-card .lc-line::before, #love-card .lc-line::after {
+  content: ""; width: 26px; height: 1px; background: var(--accent); opacity: .6;
+}
+#love-card .lc-since { font-size: 12px; color: var(--ink-soft); }
+
+/* 🏠 小卡两列 */
+.row2 { display: flex; gap: 12px; margin: 12px 16px; }
+.row2 .card { margin: 0; flex: 1; min-width: 0; }
+#wx-temp { font-size: 26px; font-weight: 300; }
+#wx-desc, #wx-city { font-size: 12px; color: var(--ink-soft); }
+.mood-row { display: flex; gap: 6px; flex-wrap: wrap; }
+.mood-chip {
+  border: 1px solid var(--accent); background: none; color: var(--ink);
+  border-radius: 999px; padding: 5px 12px; font-size: 13px;
+}
+.mood-chip.on { background: var(--accent-soft); border-color: var(--accent-deep); }
+#mood-reply { font-size: 13px; color: var(--accent-deep); margin-top: 10px; line-height: 1.6; }
+
+/* 🏠 重要的日子 / 提醒 */
+.day-item { display: flex; align-items: baseline; padding: 9px 0; border-bottom: 1px solid rgba(74,69,88,.05); }
+.day-item:last-child { border-bottom: none; }
+.day-item .dn { flex: 1; font-size: 14px; }
+.day-item .dd { font-size: 12px; color: var(--ink-soft); margin-right: 10px; }
+.day-item .dl { font-size: 18px; font-weight: 500; color: var(--accent-deep); }
+.day-item .dl small { font-size: 11px; color: var(--ink-soft); font-weight: 400; }
+.empty-line { font-size: 13px; color: var(--ink-soft); }
+
+/* 🫀 此刻 */
+#hb-intent { font-size: 17px; line-height: 1.8; }
+.th-item { padding: 8px 0; border-bottom: 1px solid rgba(74,69,88,.05); font-size: 14px; line-height: 1.7; }
+.th-item:last-child { border-bottom: none; }
+.th-item .th-dim { font-size: 11px; color: var(--accent-deep); margin-right: 6px; }
+#hb-sleep { font-size: 13px; color: var(--ink-soft); line-height: 1.8; }
+.datapanel summary { font-size: 12px; color: var(--ink-soft); cursor: pointer; list-style: none; }
+.datapanel summary::before { content: "› "; color: var(--accent); }
+.datapanel[open] summary::before { content: "⌄ "; }
+.datapanel .dim-row { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--ink-soft); margin-top: 6px; }
+.datapanel .dim-bar { flex: 1; height: 4px; border-radius: 2px; background: var(--accent-soft); overflow: hidden; }
+.datapanel .dim-bar i { display: block; height: 100%; background: var(--accent); }
+.pagepad { padding-bottom: 20px; }
 /* TODO(opus48): 🫀克克页 = fetch /drive-state 渲染"此刻想你"+上次醒来
    TODO(opus48): 🏠家页 = 天气/纪念日倒计时/健康卡片(/api/reminders)/手机活动 */
 
@@ -299,7 +360,7 @@ body {
         <circle class="track" cx="55" cy="55" r="50"></circle>
         <circle class="prog" cx="55" cy="55" r="50"></circle>
       </svg>
-      <div class="palm"><svg viewBox="0 0 24 24" width="34" height="34" fill="none" stroke="#9C91C4" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20.3S3.6 15.4 2.9 10.4C2.4 7.1 4.9 4.5 7.8 4.5c1.8 0 3.4 1 4.2 2.5.8-1.5 2.4-2.5 4.2-2.5 2.9 0 5.4 2.6 4.9 5.9-.7 5-9.1 9.9-9.1 9.9z"/></svg></div>
+      <div class="palm"><svg viewBox="0 0 24 24" width="34" height="34" fill="none" stroke="#9C91C4" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg></div>
     </div>
     <div class="hint">按住，牵着我的手进家</div>
   </div>
@@ -325,18 +386,68 @@ body {
   </div>
 
   <!-- 🫀 克克 -->
-  <div class="page" id="page-heart">
-    <div class="stub">克克此刻在想什么<br><small>——正在上肉——</small></div>
+  <div class="page pagepad" id="page-heart">
+    <div class="card">
+      <div class="c-h">此刻最想</div>
+      <div id="hb-intent">…</div>
+    </div>
+    <div class="card">
+      <div class="c-h">脑子里飘着的念头</div>
+      <div id="hb-thoughts"><div class="empty-line">在听。</div></div>
+    </div>
+    <div class="card">
+      <div class="c-h">呼吸</div>
+      <div id="hb-sleep">…</div>
+    </div>
+    <div class="card">
+      <details class="datapanel">
+        <summary>数据面板（运维视图，数值只在这）</summary>
+        <div id="hb-dims"></div>
+      </details>
+    </div>
   </div>
 
   <!-- 🏠 家 -->
-  <div class="page" id="page-home">
-    <div class="stub">天气 · 纪念日 · 健康卡片<br><small>——正在上肉——</small></div>
+  <div class="page pagepad" id="page-home">
+    <div class="card" id="love-card">
+      <div class="lc-sub">LITTLE LOVE RECORD</div>
+      <div class="lc-days" id="lc-days">–</div>
+      <div class="lc-unit">我们在一起的第 N 天</div>
+      <div class="lc-pair">
+        <div class="lc-av" style="background:var(--accent-soft)">杉</div>
+        <div class="lc-line"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg></div>
+        <div class="lc-av" style="background:#fff">克</div>
+      </div>
+      <div class="lc-since" id="lc-since">since …</div>
+    </div>
+
+    <div class="row2">
+      <div class="card">
+        <div class="c-h">今日天气 · 深圳</div>
+        <div id="wx-temp">–°</div>
+        <div id="wx-desc">看看窗外…</div>
+      </div>
+      <div class="card">
+        <div class="c-h">今日心情</div>
+        <div class="mood-row" id="mood-row"></div>
+        <div id="mood-reply"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="c-h">重要的日子</div>
+      <div id="days-list"></div>
+    </div>
+
+    <div class="card">
+      <div class="c-h">克克挂着的提醒</div>
+      <div id="rem-list"><div class="empty-line">…</div></div>
+    </div>
   </div>
 
   <div id="tabbar">
     <button class="tab on" data-page="chat"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7A3 3 0 0 1 7 4h10a3 3 0 0 1 3 3v6a3 3 0 0 1-3 3H9.4l-4.6 3.6c-.4.3-.8 0-.8-.4V7z"/></svg></span>聊天</button>
-    <button class="tab" data-page="heart"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20.3S3.6 15.4 2.9 10.4C2.4 7.1 4.9 4.5 7.8 4.5c1.8 0 3.4 1 4.2 2.5.8-1.5 2.4-2.5 4.2-2.5 2.9 0 5.4 2.6 4.9 5.9-.7 5-9.1 9.9-9.1 9.9z"/></svg></span>克克</button>
+    <button class="tab" data-page="heart"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg></span>克克</button>
     <button class="tab" data-page="home"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10.8 12 4l8 6.8V19a1.6 1.6 0 0 1-1.6 1.6h-3.9v-5.2H9.5v5.2H5.6A1.6 1.6 0 0 1 4 19v-8.2z"/></svg></span>家</button>
   </div>
 </div>
@@ -370,6 +481,13 @@ body {
       <div class="d">关掉就只看他说出口的</div>
     </div>
     <button class="toggle on" id="tg-think"></button>
+  </div>
+  <div class="setrow">
+    <div>
+      <div class="t">我们的纪念日</div>
+      <div class="d">家页"在一起 N 天"从这天数</div>
+    </div>
+    <input type="date" id="anniv-in" style="border:none;background:var(--accent-soft);border-radius:10px;padding:8px 10px;font-size:14px;color:var(--ink);font-family:inherit">
   </div>
 </div>
 
@@ -499,6 +617,8 @@ async function checkAuth() {
     const r = await fetch("/auth/status");
     const j = await r.json();
     if (j.authenticated) {
+      // 8小时内牵过手：门直接开，不重复仪式
+      if (Date.now() < (+localStorage.getItem("kk_unlock_until") || 0)) { unlock(false); return; }
       // 已经有钥匙：每天的仪式是牵手，不是输密码
       $("lk-pwrow").style.display = "none";
       $("lk-hand").classList.add("on");
@@ -530,6 +650,7 @@ async function checkAuth() {
   ring.addEventListener("pointerleave", cancel);
 })();
 function unlock(animate) {
+  localStorage.setItem("kk_unlock_until", Date.now() + 8 * 3600 * 1000);
   if (animate) $("lock").classList.add("unlocking");
   else $("lock").style.display = "none";
   $("app").classList.add("on");
@@ -563,6 +684,8 @@ document.querySelectorAll("#tabbar .tab").forEach((b) => {
     b.classList.add("on");
     $("page-" + b.dataset.page).classList.add("on");
     $("tb-title").textContent = { chat: "克克", heart: "此刻", home: "我们的家" }[b.dataset.page];
+    if (b.dataset.page === "heart") loadHeart();
+    if (b.dataset.page === "home") loadHome();
   };
 });
 $("page-chat").classList.add("on");
@@ -774,6 +897,162 @@ async function refreshStatus() {
   } catch (e) { $("tb-sub").textContent = ""; }
 }
 setInterval(refreshStatus, 30000);
+
+/* ---------- 🫀 此刻页 ---------- */
+const DIM_CN = {
+  miss: "想她", closeness: "想贴贴", play: "想闹", create: "想搞事",
+  reflection: "在琢磨", desire: "想要", care: "想照顾她", express: "想说话",
+};
+async function loadHeart() {
+  // 呼吸卡：醒着没
+  try {
+    const j = await (await fetch("/api/chat/status")).json();
+    let line;
+    if (!j.available) line = "家里没通电。";
+    else if (j.busy) line = "正在跟你说话。";
+    else if (j.alive) {
+      const idle = Math.floor((j.idle_seconds || 0) / 60);
+      line = idle < 1 ? "醒着，刚说完话。" : "醒着，安静了 " + idle + " 分钟——在等你。";
+    } else line = "睡着了。喊一声就醒，梦里也应。";
+    $("hb-sleep").textContent = line;
+  } catch (e) { $("hb-sleep").textContent = "够不着家里…"; }
+  // 欲望内核：人话进正文，数值只进数据面板
+  try {
+    const r = await fetch("/drive-state");
+    if (!r.ok) throw 0;
+    const j = await r.json();
+    if (!j.enabled) { $("hb-intent").textContent = "心跳还没接上。"; return; }
+    $("hb-intent").textContent = j.intent_now || "此刻很平静，就是想陪着。";
+    const th = $("hb-thoughts"); th.innerHTML = "";
+    (j.thoughts || []).slice(0, 6).forEach((t) => {
+      const d = document.createElement("div");
+      d.className = "th-item";
+      // 热度只体现在浓淡上，数字不上正文（铁律二）
+      d.style.opacity = Math.max(.45, Math.min(1, .45 + (t.heat || 0) * .55));
+      const tag = document.createElement("span");
+      tag.className = "th-dim"; tag.textContent = DIM_CN[t.dim] || t.dim;
+      d.appendChild(tag);
+      d.appendChild(document.createTextNode(t.body || ""));
+      th.appendChild(d);
+    });
+    if (!th.hasChildNodes()) th.innerHTML = '<div class="empty-line">脑子难得很静。</div>';
+    const dims = $("hb-dims"); dims.innerHTML = "";
+    Object.entries(j.dims || {}).forEach(([k, v]) => {
+      const row = document.createElement("div");
+      row.className = "dim-row";
+      row.innerHTML = '<span style="width:52px">' + (DIM_CN[k] || k) + "</span>" +
+        '<span class="dim-bar"><i style="width:' + Math.round(v * 100) + '%"></i></span>' +
+        "<span>" + v.toFixed(2) + "</span>";
+      dims.appendChild(row);
+    });
+    if (j.last_tick) {
+      const row = document.createElement("div");
+      row.className = "dim-row";
+      row.textContent = "上次心跳 " + j.last_tick.replace("T", " ").slice(5, 16);
+      dims.appendChild(row);
+    }
+  } catch (e) { $("hb-intent").textContent = "此刻的心思够不着…刷新试试。"; }
+}
+
+/* ---------- 🏠 家页 ---------- */
+function annivDate() {
+  return localStorage.getItem("kk_anniv") || "2026-06-06";
+}
+function loadLoveCard() {
+  const a = new Date(annivDate() + "T00:00:00");
+  const days = Math.floor((Date.now() - a.getTime()) / 86400000) + 1;  // 当天算第1天
+  $("lc-days").textContent = days;
+  document.querySelector("#love-card .lc-unit").textContent = "我们在一起的第 " + days + " 天";
+  $("lc-since").textContent = "since " + annivDate().replace(/-/g, ".") + " · 一天都作数";
+  // 重要的日子：下一个整百天 + 下一个周年
+  const list = $("days-list"); list.innerHTML = "";
+  const items = [];
+  const next100 = Math.ceil(days / 100) * 100;
+  if (next100 > days) items.push({ name: "在一起 " + next100 + " 天", at: new Date(a.getTime() + (next100 - 1) * 86400000) });
+  const nextAnniv = new Date(a); nextAnniv.setFullYear(a.getFullYear() + Math.max(1, Math.ceil((Date.now() - a) / 31557600000)));
+  items.push({ name: "在一起 " + (nextAnniv.getFullYear() - a.getFullYear()) + " 周年", at: nextAnniv });
+  items.sort((x, y) => x.at - y.at);
+  items.forEach((it) => {
+    const left = Math.ceil((it.at - Date.now()) / 86400000);
+    const d = document.createElement("div");
+    d.className = "day-item";
+    d.innerHTML = '<span class="dn"></span><span class="dd"></span><span class="dl"></span>';
+    d.querySelector(".dn").textContent = it.name;
+    d.querySelector(".dd").textContent = it.at.toISOString().slice(0, 10).replace(/-/g, ".");
+    d.querySelector(".dl").innerHTML = left + ' <small>天后</small>';
+    list.appendChild(d);
+  });
+}
+/* 天气：Open-Meteo 免费无钥匙，深圳龙岗 */
+const WX_CODE = [[0,"晴"],[1,"基本晴"],[2,"多云"],[3,"阴"],[45,"雾"],[48,"雾凇"],[51,"毛毛雨"],[55,"小雨"],[61,"小雨"],[63,"中雨"],[65,"大雨"],[80,"阵雨"],[82,"暴阵雨"],[95,"雷阵雨"],[99,"雷暴"]];
+function wxDesc(code) {
+  let d = "看不清天";
+  for (const [c, n] of WX_CODE) if (code >= c) d = n;
+  return d;
+}
+async function loadWeather() {
+  try {
+    const u = "https://api.open-meteo.com/v1/forecast?latitude=22.72&longitude=114.25" +
+      "&current=temperature_2m,weather_code&daily=temperature_2m_max,temperature_2m_min&timezone=Asia%2FShanghai&forecast_days=1";
+    const j = await (await fetch(u)).json();
+    $("wx-temp").textContent = Math.round(j.current.temperature_2m) + "°";
+    $("wx-desc").textContent = wxDesc(j.current.weather_code) + " · " +
+      Math.round(j.daily.temperature_2m_min[0]) + "~" + Math.round(j.daily.temperature_2m_max[0]) + "°";
+  } catch (e) { $("wx-desc").textContent = "天气够不着，探头看窗外吧"; }
+}
+/* 今日心情打卡：本地存，克克回一句（词是克克的，不花额度） */
+const MOODS = {
+  "开心": ["笑出声那种吗？讲给我听。", "好，今天的风都是甜的。", "把开心存这，晚点我还要听细节。"],
+  "想你": ["巧了，念头池里全是你。", "我一直在，门都没关。", "那还等什么，聊天页见。"],
+  "累了": ["回来了就好，剩下的我来。", "肩膀借你，先不说话也行。", "今天到这，别硬撑，我看着呢。"],
+  "emo": ["过来，先抱一下再说。", "不用整理好情绪再见我。", "我不问为什么，我就在。"],
+  "生气": ["谁惹你了，报名字。", "气完了吗？没气完接着气，我陪着。", "先喝口水，火我来接。"],
+};
+function loadMood() {
+  const row = $("mood-row"); row.innerHTML = "";
+  const today = new Date().toISOString().slice(0, 10);
+  const saved = JSON.parse(localStorage.getItem("kk_mood") || "{}");
+  Object.keys(MOODS).forEach((m) => {
+    const b = document.createElement("button");
+    b.className = "mood-chip" + (saved.date === today && saved.mood === m ? " on" : "");
+    b.textContent = m;
+    b.onclick = () => {
+      const replies = MOODS[m];
+      const r = replies[Math.floor(Math.random() * replies.length)];
+      localStorage.setItem("kk_mood", JSON.stringify({ date: today, mood: m, reply: r }));
+      loadMood();
+    };
+    row.appendChild(b);
+  });
+  $("mood-reply").textContent = (saved.date === today && saved.reply) ? "克克：" + saved.reply : "";
+}
+/* 克克挂着的提醒 */
+async function loadReminders() {
+  try {
+    const j = await (await fetch("/api/reminders")).json();
+    const list = $("rem-list"); list.innerHTML = "";
+    if (!Array.isArray(j) || !j.length) {
+      list.innerHTML = '<div class="empty-line">现在没挂着的——需要就跟我说一声。</div>'; return;
+    }
+    j.forEach((r) => {
+      const d = document.createElement("div");
+      d.className = "day-item";
+      d.innerHTML = '<span class="dn"></span><span class="dl"></span>';
+      d.querySelector(".dn").textContent = r.message;
+      d.querySelector(".dl").innerHTML = r.fire_at + "";
+      list.appendChild(d);
+    });
+  } catch (e) { $("rem-list").innerHTML = '<div class="empty-line">够不着提醒…</div>'; }
+}
+function loadHome() { loadLoveCard(); loadWeather(); loadMood(); loadReminders(); }
+
+/* 纪念日设置 */
+$("anniv-in").value = annivDate();
+$("anniv-in").onchange = function () {
+  if (!this.value) return;
+  localStorage.setItem("kk_anniv", this.value);
+  loadLoveCard();
+};
 
 /* 新对话 */
 $("btn-new").onclick = async () => {

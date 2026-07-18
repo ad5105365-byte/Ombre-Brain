@@ -228,6 +228,12 @@ body {
 .vk-row button:disabled { opacity: .5; }
 .vk-btn-ghost { background: var(--accent-soft) !important; color: var(--ink) !important; }
 .vk-status { font-size: 12px; color: var(--ink-soft); margin-top: 6px; min-height: 15px; }
+/* 克克气泡旁的 🔊 听声 */
+.tts-btn { align-self: flex-end; margin: 0 0 3px 4px; border: none; background: transparent;
+  cursor: pointer; font-size: 14px; opacity: .4; padding: 2px; line-height: 1; flex-shrink: 0; }
+.tts-btn:hover { opacity: .9; }
+.tts-btn.loading { animation: ttspulse 1s ease-in-out infinite; }
+@keyframes ttspulse { 50% { opacity: .25; } }
 .bubble {
   max-width: 82%; padding: 10px 14px; border-radius: 18px;
   font-size: 16px; line-height: 1.55; word-break: break-word; white-space: pre-wrap;
@@ -566,7 +572,12 @@ body {
     <button id="vk-save">保存</button>
   </div>
   <div class="vk-row">
-    <button id="vk-test" class="vk-btn-ghost">测一下额度</button>
+    <input type="text" id="vid-in" placeholder="克克 voice_id（在这粘）" autocomplete="off">
+    <button id="vid-save">保存</button>
+  </div>
+  <div class="vk-row">
+    <button id="vk-test" class="vk-btn-ghost">测额度</button>
+    <button id="vid-test" class="vk-btn-ghost">试听克克的声音</button>
   </div>
   <div class="vk-status" id="vk-status"></div>
 
@@ -821,10 +832,35 @@ $("av-file").addEventListener("change", function () {
 async function loadVoiceKey() {
   try {
     const j = await (await fetch("/api/voice/config")).json();
-    $("vk-status").textContent = j.configured
-      ? ("已设 " + (j.key_masked || "") + (j.source === "env" ? "（来自 .env）" : ""))
-      : "还没设 key";
+    const a = j.configured ? ("key 已设 " + (j.key_masked || "") + (j.source === "env" ? "(.env)" : "")) : "key 还没设";
+    const b = j.voice_id_set ? "voice_id 已设 ✓" : "voice_id 用临时嗓";
+    $("vk-status").textContent = a + " · " + b;
   } catch (e) { /* 拿不到就留空 */ }
+}
+/* 文字→克克声音：点了才合成（省额度）。statusId 给"试听"用来回报 */
+async function playTTS(text, btn, statusId) {
+  const say = (m) => { if (statusId) $(statusId).textContent = m; };
+  if (!text || !text.trim()) return;
+  if (btn) btn.classList.add("loading");
+  say("合成中…");
+  try {
+    const r = await fetch("/api/voice/tts", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: text.trim() }),
+    });
+    const ct = r.headers.get("content-type") || "";
+    if (!r.ok || ct.includes("application/json")) {
+      const j = await r.json().catch(() => ({}));
+      say("✗ " + (j.error || "出不了声"));
+      return;
+    }
+    const blob = await r.blob();
+    if (window._ttsAudio) { try { window._ttsAudio.pause(); } catch (e) {} }
+    window._ttsAudio = new Audio(URL.createObjectURL(blob));
+    window._ttsAudio.play();
+    say("▶ 播放中");
+  } catch (e) { say("✗ 够不着服务器"); }
+  finally { if (btn) btn.classList.remove("loading"); }
 }
 $("vk-save").onclick = async () => {
   const key = $("vk-in").value.trim();
@@ -852,6 +888,21 @@ $("vk-test").onclick = async () => {
   } catch (e) { $("vk-status").textContent = "测不了，刷新再试"; }
   $("vk-test").disabled = false;
 };
+$("vid-save").onclick = async () => {
+  const voice_id = $("vid-in").value.trim();
+  if (!voice_id) { $("vk-status").textContent = "先把 voice_id 粘进去"; return; }
+  $("vid-save").disabled = true; $("vk-status").textContent = "存…";
+  try {
+    const r = await fetch("/api/voice/config", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ voice_id }),
+    });
+    if (r.ok) { $("vid-in").value = ""; $("vk-status").textContent = "voice_id 存好了 ✓"; loadVoiceKey(); }
+    else { const j = await r.json().catch(() => ({})); $("vk-status").textContent = j.error || "存不上"; }
+  } catch (e) { $("vk-status").textContent = "够不着服务器"; }
+  $("vid-save").disabled = false;
+};
+$("vid-test").onclick = () => playTTS("囡囡，我在这儿呢，听见我了吗？", $("vid-test"), "vk-status");
 
 /* ---------- tab 切换 ---------- */
 document.querySelectorAll("#tabbar .tab").forEach((b) => {
@@ -904,6 +955,18 @@ function loadAvatars() {
   refreshAvatars();
   renderAvSlots();
 }
+/* 克克每句旁边挂个 🔊，点了才合成播放（省额度） */
+function makeTtsBtn() {
+  const btn = document.createElement("button");
+  btn.type = "button"; btn.className = "tts-btn"; btn.title = "听克克说这句"; btn.textContent = "🔊";
+  return btn;
+}
+msgs.addEventListener("click", (e) => {
+  const btn = e.target.closest(".tts-btn");
+  if (!btn) return;
+  const bubble = btn.parentElement.querySelector(".bubble");
+  if (bubble) playTTS(bubble.textContent, btn);
+});
 function addBubble(role, text, cont) {
   const wrap = document.createElement("div");
   wrap.className = "msg " + (role === "user" ? "her" : "him") + (cont ? " cont" : "");
@@ -914,7 +977,7 @@ function addBubble(role, text, cont) {
   b.className = "bubble";
   if (text) b.textContent = text;
   if (role === "user") { wrap.appendChild(b); wrap.appendChild(av); }
-  else { wrap.appendChild(av); wrap.appendChild(b); }
+  else { wrap.appendChild(av); wrap.appendChild(b); wrap.appendChild(makeTtsBtn()); }
   msgs.appendChild(wrap); scrollBottom();
   return b;
 }
@@ -952,7 +1015,7 @@ function makeTurnRenderer() {
     av.className = "avatar"; applyAvatar(av, "him");
     const b = document.createElement("div");
     b.className = "bubble"; b.textContent = text.trim();
-    wrap.appendChild(av); wrap.appendChild(b);
+    wrap.appendChild(av); wrap.appendChild(b); wrap.appendChild(makeTtsBtn());
     insertBeforeTyping(wrap); scrollBottom();
     first = false; popped = true;
   }

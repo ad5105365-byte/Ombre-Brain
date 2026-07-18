@@ -4552,6 +4552,17 @@ def _save_voice_key(key: str) -> None:
     set_config("elevenlabs_key", key.strip())
 
 
+# 克克嗓子的 voice_id：杉杉在 ElevenLabs 建好后粘进来；没设先借自带暖男嗓临时顶
+_DEFAULT_VOICE_ID = "pNInz6obpgDQGcFmaJgB"
+
+
+def _get_voice_id() -> str:
+    vid = get_config("elevenlabs_voice_id")
+    if vid:
+        return vid.strip()
+    return os.environ.get("ELEVENLABS_VOICE_ID", "").strip() or _DEFAULT_VOICE_ID
+
+
 @mcp.custom_route("/api/voice/config", methods=["GET"])
 async def api_voice_config_get(request):
     from starlette.responses import JSONResponse
@@ -4560,10 +4571,13 @@ async def api_voice_config_get(request):
     key = _get_voice_key()
     masked = f"{key[:4]}...{key[-4:]}" if len(key) > 8 else ("***" if key else "")
     from_env = bool(not get_config("elevenlabs_key") and os.environ.get("ELEVENLABS_API_KEY", "").strip())
+    vid_set = bool(get_config("elevenlabs_voice_id") or os.environ.get("ELEVENLABS_VOICE_ID", "").strip())
     return JSONResponse({
         "configured": bool(key),
         "key_masked": masked,
         "source": "env" if from_env else ("db" if key else ""),
+        "voice_id": _get_voice_id(),
+        "voice_id_set": vid_set,
     })
 
 
@@ -4577,10 +4591,14 @@ async def api_voice_config_set(request):
     except Exception:
         return JSONResponse({"error": "Invalid JSON"}, status_code=400)
     key = body.get("key", "").strip()
-    if not key:
-        return JSONResponse({"error": "key 不能为空"}, status_code=400)
+    voice_id = body.get("voice_id", "").strip()
+    if not key and not voice_id:
+        return JSONResponse({"error": "key 或 voice_id 至少给一个"}, status_code=400)
     try:
-        _save_voice_key(key)
+        if key:
+            _save_voice_key(key)
+        if voice_id:
+            set_config("elevenlabs_voice_id", voice_id)
         return JSONResponse({"ok": True})
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
@@ -4617,6 +4635,43 @@ async def api_voice_test(request):
         })
     except Exception as e:
         return JSONResponse({"ok": False, "error": str(e)}, status_code=200)
+
+
+@mcp.custom_route("/api/voice/tts", methods=["POST"])
+async def api_voice_tts(request):
+    """文字→克克音色语音（ElevenLabs TTS）。手动触发（点 🔊 才合成），省字符额度。"""
+    from starlette.responses import JSONResponse, Response
+    err = _require_auth(request)
+    if err: return err
+    key = _get_voice_key()
+    if not key:
+        return JSONResponse({"error": "还没设语音 key"}, status_code=400)
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "Invalid JSON"}, status_code=400)
+    text = (body.get("text") or "").strip()
+    if not text:
+        return JSONResponse({"error": "没有文字"}, status_code=400)
+    if len(text) > 600:
+        text = text[:600]   # 护额度：太长截断，免得一条烧掉太多字符
+    voice_id = (body.get("voice_id") or "").strip() or _get_voice_id()
+    try:
+        async with httpx.AsyncClient(timeout=45.0) as client:
+            r = await client.post(
+                f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}",
+                headers={"xi-api-key": key, "Content-Type": "application/json"},
+                json={
+                    "text": text,
+                    "model_id": "eleven_multilingual_v2",
+                    "voice_settings": {"stability": 0.5, "similarity_boost": 0.75},
+                },
+            )
+        if r.status_code != 200:
+            return JSONResponse({"error": f"TTS {r.status_code}: {r.text[:200]}"}, status_code=200)
+        return Response(content=r.content, media_type="audio/mpeg")
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=200)
 
 
 @mcp.custom_route("/api/bark/push", methods=["POST"])

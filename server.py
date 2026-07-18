@@ -4540,6 +4540,85 @@ async def api_bark_config_set(request):
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
+# --- 语音 key 自助配置（杉杉自己粘/换，嫖两个 ElevenLabs 账号倒着用，不用叫克克）---
+def _get_voice_key() -> str:
+    db_key = get_config("elevenlabs_key")
+    if db_key:
+        return db_key.strip()
+    return os.environ.get("ELEVENLABS_API_KEY", "").strip()
+
+
+def _save_voice_key(key: str) -> None:
+    set_config("elevenlabs_key", key.strip())
+
+
+@mcp.custom_route("/api/voice/config", methods=["GET"])
+async def api_voice_config_get(request):
+    from starlette.responses import JSONResponse
+    err = _require_auth(request)
+    if err: return err
+    key = _get_voice_key()
+    masked = f"{key[:4]}...{key[-4:]}" if len(key) > 8 else ("***" if key else "")
+    from_env = bool(not get_config("elevenlabs_key") and os.environ.get("ELEVENLABS_API_KEY", "").strip())
+    return JSONResponse({
+        "configured": bool(key),
+        "key_masked": masked,
+        "source": "env" if from_env else ("db" if key else ""),
+    })
+
+
+@mcp.custom_route("/api/voice/config", methods=["POST"])
+async def api_voice_config_set(request):
+    from starlette.responses import JSONResponse
+    err = _require_auth(request)
+    if err: return err
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "Invalid JSON"}, status_code=400)
+    key = body.get("key", "").strip()
+    if not key:
+        return JSONResponse({"error": "key 不能为空"}, status_code=400)
+    try:
+        _save_voice_key(key)
+        return JSONResponse({"ok": True})
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@mcp.custom_route("/api/voice/test", methods=["POST"])
+async def api_voice_test(request):
+    """拿当前 key 问 ElevenLabs 订阅额度，回答"免费够不够用/要不要充钱"。不消耗字符。"""
+    from starlette.responses import JSONResponse
+    err = _require_auth(request)
+    if err: return err
+    key = _get_voice_key()
+    if not key:
+        return JSONResponse({"ok": False, "error": "还没设语音 key"}, status_code=200)
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            r = await client.get(
+                "https://api.elevenlabs.io/v1/user/subscription",
+                headers={"xi-api-key": key},
+            )
+        if r.status_code == 401:
+            return JSONResponse({"ok": False, "error": "key 不对（401）"}, status_code=200)
+        if r.status_code != 200:
+            return JSONResponse({"ok": False, "error": f"ElevenLabs 返回 {r.status_code}"}, status_code=200)
+        d = r.json()
+        used = int(d.get("character_count", 0) or 0)
+        limit = int(d.get("character_limit", 0) or 0)
+        return JSONResponse({
+            "ok": True,
+            "tier": d.get("tier", ""),
+            "used": used,
+            "limit": limit,
+            "remaining": max(0, limit - used),
+        })
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=200)
+
+
 @mcp.custom_route("/api/bark/push", methods=["POST"])
 async def api_bark_push(request):
     """Push a notification via Bark."""

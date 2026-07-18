@@ -219,6 +219,15 @@ body {
   justify-content: center; font-size: 14px; color: var(--ink-soft); }
 .av-slot.has-img .lbl { display: none; }
 .av-hint { font-size: 12px; color: var(--ink-soft); margin: 8px 0 0; }
+/* 语音 key 自助配置 */
+.vk-row { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
+.vk-row input { flex: 1; min-width: 0; border: none; background: var(--accent-soft);
+  border-radius: 10px; padding: 9px 11px; font-size: 14px; color: var(--ink); font-family: inherit; }
+.vk-row button { border: none; background: var(--accent); color: #fff; border-radius: 10px;
+  padding: 9px 14px; font-size: 14px; cursor: pointer; white-space: nowrap; }
+.vk-row button:disabled { opacity: .5; }
+.vk-btn-ghost { background: var(--accent-soft) !important; color: var(--ink) !important; }
+.vk-status { font-size: 12px; color: var(--ink-soft); margin-top: 6px; min-height: 15px; }
 .bubble {
   max-width: 82%; padding: 10px 14px; border-radius: 18px;
   font-size: 16px; line-height: 1.55; word-break: break-word; white-space: pre-wrap;
@@ -551,6 +560,16 @@ body {
   <div class="av-hint">点圆点选张图当情头；长按清掉换回字牌</div>
   <input type="file" id="av-file" accept="image/*" style="display:none">
 
+  <div class="set-h">语音 key（ElevenLabs）</div>
+  <div class="vk-row">
+    <input type="password" id="vk-in" placeholder="粘贴 sk_…（换账号直接改这里）" autocomplete="off">
+    <button id="vk-save">保存</button>
+  </div>
+  <div class="vk-row">
+    <button id="vk-test" class="vk-btn-ghost">测一下额度</button>
+  </div>
+  <div class="vk-status" id="vk-status"></div>
+
   <div class="setrow">
     <div>
       <div class="t">看克克脑子里的话</div>
@@ -735,6 +754,7 @@ function unlock(animate) {
   else $("lock").style.display = "none";
   $("app").classList.add("on");
   loadAvatars();
+  loadVoiceKey();
   loadHistory();
   refreshStatus();
 }
@@ -796,6 +816,42 @@ $("av-file").addEventListener("change", function () {
   };
   img.src = URL.createObjectURL(f);
 });
+
+/* ---------- 语音 key 自助配置：她自己粘/换，嫖两个 ElevenLabs 账号倒着用 ---------- */
+async function loadVoiceKey() {
+  try {
+    const j = await (await fetch("/api/voice/config")).json();
+    $("vk-status").textContent = j.configured
+      ? ("已设 " + (j.key_masked || "") + (j.source === "env" ? "（来自 .env）" : ""))
+      : "还没设 key";
+  } catch (e) { /* 拿不到就留空 */ }
+}
+$("vk-save").onclick = async () => {
+  const key = $("vk-in").value.trim();
+  if (!key) { $("vk-status").textContent = "先把 key 粘进去"; return; }
+  $("vk-save").disabled = true; $("vk-status").textContent = "存…";
+  try {
+    const r = await fetch("/api/voice/config", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key }),
+    });
+    if (r.ok) { $("vk-in").value = ""; $("vk-status").textContent = "存好了 ✓"; loadVoiceKey(); }
+    else { const j = await r.json().catch(() => ({})); $("vk-status").textContent = j.error || "存不上"; }
+  } catch (e) { $("vk-status").textContent = "够不着服务器"; }
+  $("vk-save").disabled = false;
+};
+$("vk-test").onclick = async () => {
+  $("vk-test").disabled = true; $("vk-status").textContent = "问 ElevenLabs…";
+  try {
+    const j = await (await fetch("/api/voice/test", { method: "POST" })).json();
+    if (j.ok) {
+      const left = (j.remaining || 0).toLocaleString();
+      const lim = (j.limit || 0).toLocaleString();
+      $("vk-status").textContent = "✓ " + (j.tier || "档位未知") + "：还剩 " + left + " / " + lim + " 字符";
+    } else { $("vk-status").textContent = "✗ " + (j.error || "测不通"); }
+  } catch (e) { $("vk-status").textContent = "测不了，刷新再试"; }
+  $("vk-test").disabled = false;
+};
 
 /* ---------- tab 切换 ---------- */
 document.querySelectorAll("#tabbar .tab").forEach((b) => {

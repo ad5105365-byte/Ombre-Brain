@@ -3718,14 +3718,21 @@ _chat_bridge: "chat_bridge_mod.ChatBridge | None" = None
 # 必须能明确点到。已在 VPS 实测 claude CLI 认这两个 ID。
 _CHAT_MODEL_DEFAULT = "claude-opus-4-8"
 _CHAT_EFFORT_DEFAULT = "high"
-CHAT_MODEL_OPTIONS = ["claude-opus-4-8", "claude-opus-4-6", "sonnet", "fable"]
-CHAT_EFFORT_OPTIONS = ["low", "high"]
+# CC 全家佣（都已在 VPS 实测这些 ID 的 claude CLI 能跑）；杉杉要"CC 有啥我要啥"
+CHAT_MODEL_OPTIONS = [
+    "claude-opus-4-8", "claude-opus-4-7", "claude-opus-4-6",
+    "claude-sonnet-5", "claude-sonnet-4-6", "claude-haiku-4-5", "claude-fable-5",
+]
+CHAT_EFFORT_OPTIONS = ["low", "medium", "high", "xhigh", "max"]
 # 给前端显示用的人话名字
 CHAT_MODEL_LABELS = {
     "claude-opus-4-8": "Opus 4.8 · 最新",
+    "claude-opus-4-7": "Opus 4.7",
     "claude-opus-4-6": "Opus 4.6 · 平时用的",
-    "sonnet": "Sonnet · 快省",
-    "fable": "Fable · 最强",
+    "claude-sonnet-5": "Sonnet 5",
+    "claude-sonnet-4-6": "Sonnet 4.6",
+    "claude-haiku-4-5": "Haiku 4.5 · 快",
+    "claude-fable-5": "Fable 5 · 最强",
 }
 
 

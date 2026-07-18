@@ -435,6 +435,15 @@ body {
   padding: 18px 22px calc(var(--sab) + 26px);
   transform: translateY(100%); transition: transform .3s ease;
   box-shadow: 0 -4px 24px rgba(74,69,88,.1);
+  /* 内容太多会顶出屏幕→设上限并可滚，不然够不着关闭 */
+  max-height: 86vh; overflow-y: auto; -webkit-overflow-scrolling: touch;
+}
+/* 面板右上角常驻关闭按钮（点背景空白也能关，但这个一眼看得见） */
+#sheet-close {
+  position: sticky; top: -2px; float: right; margin: -6px -6px 0 0;
+  border: none; background: var(--accent-soft); color: var(--ink);
+  width: 30px; height: 30px; border-radius: 50%; font-size: 16px;
+  line-height: 30px; cursor: pointer; z-index: 2;
 }
 #sheet.on { transform: none; }
 #sheet .grip { width: 36px; height: 4px; border-radius: 2px; background: #E5E2EB; margin: 0 auto 6px; }
@@ -986,6 +995,7 @@ body {
 <!-- ================= 设置面板 ================= -->
 <div id="mask"></div>
 <div id="sheet">
+  <button id="sheet-close" type="button" aria-label="关闭">✕</button>
   <div class="grip"></div>
   <h3>美化小屋</h3>
 
@@ -1016,10 +1026,7 @@ body {
 
   <div class="set-h">跟克克聊天用的脑子</div>
   <div class="mdl-seg" id="mdl-model-seg"><!-- 按钮由 loadChatModel() 按后端选项动态生成 --></div>
-  <div class="mdl-seg" id="mdl-effort-seg">
-    <button type="button" data-effort="low">low</button>
-    <button type="button" data-effort="high">high</button>
-  </div>
+  <div class="mdl-seg" id="mdl-effort-seg"><!-- 按钮由 loadChatModel() 按后端选项动态生成 --></div>
   <div class="mdl-status" id="mdl-status">读取中…</div>
 
   <div class="set-h">第二个大脑接口（中转 API / Codex / 备用账号，还没接线，先存起来）</div>
@@ -1106,7 +1113,10 @@ function applyPrefs() {
 
 /* 设置面板开合 */
 $("btn-set").onclick = () => { $("mask").classList.add("on"); $("sheet").classList.add("on"); };
-$("mask").onclick = () => { $("mask").classList.remove("on"); $("sheet").classList.remove("on"); };
+function closeSheet() { $("mask").classList.remove("on"); $("sheet").classList.remove("on"); }
+$("mask").onclick = closeSheet;
+$("sheet-close").onclick = closeSheet;
+$("sheet").querySelector(".grip").onclick = closeSheet;  // 点顶上小横条也能关
 
 document.querySelectorAll("#skin-row .sw").forEach((b) => {
   b.onclick = () => { PREFS.skin = b.dataset.skin; localStorage.setItem("kk_skin", PREFS.skin); applyPrefs(); };
@@ -1328,8 +1338,17 @@ async function loadChatModel() {
         seg.appendChild(b);
       });
     }
-    document.querySelectorAll("#mdl-effort-seg button").forEach((b) =>
-      b.classList.toggle("on", b.dataset.effort === j.effort));
+    const eseg = $("mdl-effort-seg");
+    if (eseg && Array.isArray(j.effort_options)) {
+      eseg.innerHTML = "";
+      j.effort_options.forEach((opt) => {
+        const b = document.createElement("button");
+        b.type = "button"; b.dataset.effort = opt; b.textContent = opt;
+        b.classList.toggle("on", opt === j.effort);
+        b.onclick = () => setChatModel({ effort: opt });
+        eseg.appendChild(b);
+      });
+    }
     $("mdl-status").textContent = "现在：" + shortModel(j.model) + " · " + j.effort;
   } catch (e) { /* 拿不到就留空，不影响聊天 */ }
 }
@@ -1348,10 +1367,7 @@ async function setChatModel(body) {
   } catch (e) { $("mdl-status").textContent = "✗ 够不着服务器"; }
   btns.forEach((b) => (b.disabled = false));
 }
-// 模型按钮的 onclick 在 loadChatModel() 动态生成时就绑好了，这里只绑 effort
-document.querySelectorAll("#mdl-effort-seg button").forEach((b) => {
-  b.onclick = () => setChatModel({ effort: b.dataset.effort });
-});
+// 模型/effort 按钮的 onclick 都在 loadChatModel() 动态生成时绑好了
 $("tb-model").onclick = () => { $("mask").classList.add("on"); $("sheet").classList.add("on"); };
 loadChatModel();
 

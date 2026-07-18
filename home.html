@@ -1246,7 +1246,7 @@ function addVoiceBubble(role, url, dur, transcript) {
   return b;
 }
 /* 录音机 */
-let mediaRec = null, recChunks = [], recStream = null, recording = false, recCancelled = false, recBusy = false;
+let mediaRec = null, recChunks = [], recStream = null, recording = false, recCancelled = false, recBusy = false, lastVoiceSendAt = 0;
 async function startRec() {
   if (recording || recBusy || sending) return;
   try {
@@ -1271,6 +1271,7 @@ async function onRecStop() {
   if (recCancelled) return;
   const blob = new Blob(recChunks, { type: (mediaRec && mediaRec.mimeType) || "audio/webm" });
   if (blob.size < 900) { addSys("太短啦，没录到——按住多说一会儿"); return; }
+  if (Date.now() - lastVoiceSendAt < 1200) return;   // 防抖：别重复发两次
   recBusy = true; $("mic").classList.add("busy");
   try {
     const feat = await analyzeVoice(blob);          // B：手机本地量语气
@@ -1286,7 +1287,9 @@ async function onRecStop() {
     const hint = toneHint(feat, clean);
     const toKeke = hint ? ("〔语气：" + hint + "〕\n" + clean) : clean;
     const dur = (feat && feat.dur) ? feat.dur : 2;
-    addVoiceBubble("user", URL.createObjectURL(blob), dur, clean);  // 她这侧：能回放的语音条
+    const playUrl = j.audio_url || URL.createObjectURL(blob);       // 优先云端 URL（不占手机内存）
+    lastVoiceSendAt = Date.now();
+    addVoiceBubble("user", playUrl, dur, clean);                    // 她这侧：能回放的语音条
     streamReply(toKeke);                                            // 悄悄把文字+语气送我
   } catch (e) { addSys("转文字够不着服务器…网络看看"); }
   finally { recBusy = false; $("mic").classList.remove("busy"); }

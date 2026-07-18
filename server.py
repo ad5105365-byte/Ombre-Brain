@@ -4709,10 +4709,24 @@ async def api_voice_stt(request):
         if r.status_code != 200:
             return JSONResponse({"error": f"STT {r.status_code}: {r.text[:200]}"}, status_code=200)
         d = r.json()
+        text = (d.get("text") or "").strip()
+        # 存音频到独立语音桶（不进相册），返签名 URL 供回放——省她手机内存
+        audio_url = ""
+        try:
+            import voice_store as _vs
+            if _vs.is_configured():
+                await _vs.ensure_bucket()
+                ct = getattr(upload, "content_type", None) or "audio/webm"
+                ext = "mp4" if "mp4" in ct else ("ogg" if "ogg" in ct else ("wav" if "wav" in ct else "webm"))
+                up = await _vs.upload_audio(audio, ext, ct)
+                audio_url = await _vs.signed_url(up["path"])
+        except Exception:
+            audio_url = ""
         return JSONResponse({
             "ok": True,
-            "text": (d.get("text") or "").strip(),
+            "text": text,
             "language": d.get("language_code", ""),
+            "audio_url": audio_url,
         })
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=200)

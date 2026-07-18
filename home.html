@@ -300,6 +300,17 @@ body {
 #inputbar #mic.recording { background: #E5484D; color: #fff; animation: micpulse 1s ease-in-out infinite; }
 #inputbar #mic.busy { background: var(--accent); color: #fff; }
 @keyframes micpulse { 50% { opacity: .5; } }
+/* 语音条气泡（微信式：点播放听自己，点气泡展开转文字） */
+.voice-bubble { cursor: pointer; min-width: 96px; }
+.vrow { display: flex; align-items: center; gap: 8px; }
+.vrow .vplay { border: none; background: transparent; padding: 0; margin: 0; cursor: pointer;
+  color: inherit; display: flex; align-items: center; flex-shrink: 0; }
+.vrow .vplay svg { display: block; }
+.vbars { display: flex; align-items: center; gap: 2px; height: 18px; flex: 1; min-width: 40px; }
+.vbars i { width: 2px; background: currentColor; opacity: .45; border-radius: 1px; }
+.vdur { font-size: 12px; opacity: .65; flex-shrink: 0; }
+.vtext { margin-top: 7px; padding-top: 6px; border-top: 1px solid rgba(120,110,140,.16);
+  font-size: 14px; line-height: 1.5; opacity: .85; }
 
 /* ---------- 🫀 / 🏠 施工区 ---------- */
 .stub {
@@ -1079,11 +1090,9 @@ function makeTurnRenderer() {
   };
 }
 
-// 核心发送：displayText 上屏给她看，toKeke 是真正送进克克脑子的（语音会带〔语气〕前缀）
-async function sendCore(displayText, toKeke) {
-  if (!displayText || sending) return;
+// 只负责把 toKeke 送进克克脑子 + 流式渲染回复（她那侧的气泡由调用方先渲染好）
+async function streamReply(toKeke) {
   sending = true; $("send").disabled = true;
-  addBubble("user", displayText);
   const turn = makeTurnRenderer();
   try {
     const r = await fetch("/api/chat", {
@@ -1127,6 +1136,12 @@ async function sendCore(displayText, toKeke) {
     sending = false; $("send").disabled = false;
     refreshStatus();
   }
+}
+// 打字发送：她的文字气泡 + 送进克克脑子（displayText 与 toKeke 相同）
+async function sendCore(displayText, toKeke) {
+  if (!displayText || sending) return;
+  addBubble("user", displayText);
+  await streamReply(toKeke);
 }
 async function sendMsg() {
   const ta = $("input");
@@ -1201,6 +1216,35 @@ function toneHint(feat, transcript) {
   if (feat.dur && feat.dur < 1.2) bits.push("很短一句");
   return bits.join("、");
 }
+/* 语音条气泡：能点播放听自己、点气泡展开转文字 */
+function fmtDur(s) { s = Math.max(1, Math.round(s || 1)); return s + '"'; }
+function stripTone(t) { return (t || "").replace(/^〔语气：[^〕]*〕\s*/, ""); }
+const PLAY_SVG = '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>';
+const PAUSE_SVG = '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>';
+function addVoiceBubble(role, url, dur, transcript) {
+  const wrap = document.createElement("div");
+  wrap.className = "msg " + (role === "user" ? "her" : "him");
+  const av = document.createElement("div"); av.className = "avatar"; applyAvatar(av, role);
+  const b = document.createElement("div"); b.className = "bubble voice-bubble";
+  const bars = Array.from({ length: 14 }, () => '<i style="height:' + (5 + Math.floor(Math.random() * 11)) + 'px"></i>').join("");
+  b.innerHTML = '<div class="vrow"><button class="vplay" aria-label="播放">' + PLAY_SVG +
+    '</button><span class="vbars">' + bars + '</span><span class="vdur">' + fmtDur(dur) + "</span></div>";
+  const tx = document.createElement("div"); tx.className = "vtext"; tx.hidden = true; tx.textContent = transcript || "";
+  b.appendChild(tx);
+  const audio = new Audio(url);
+  const playBtn = b.querySelector(".vplay");
+  playBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (audio.paused) { audio.play(); playBtn.innerHTML = PAUSE_SVG; }
+    else { audio.pause(); playBtn.innerHTML = PLAY_SVG; }
+  });
+  audio.onended = () => { playBtn.innerHTML = PLAY_SVG; };
+  b.addEventListener("click", (e) => { if (e.target.closest(".vplay")) return; tx.hidden = !tx.hidden; });
+  if (role === "user") { wrap.appendChild(b); wrap.appendChild(av); }
+  else { wrap.appendChild(av); wrap.appendChild(b); }
+  msgs.appendChild(wrap); scrollBottom();
+  return b;
+}
 /* 录音机 */
 let mediaRec = null, recChunks = [], recStream = null, recording = false, recCancelled = false, recBusy = false;
 async function startRec() {
@@ -1238,9 +1282,12 @@ async function onRecStop() {
     // 滤掉 Scribe 给静音/呼吸打的事件标记（[pause]、(silence) 之类）；纯非语音就不发
     const clean = (j.text || "").replace(/[\[\(（【][^\]\)）】]{0,24}[\]\)）】]/g, "").trim();
     if (!clean.replace(/\s/g, "")) { addSys("没听清你说啥…贴近点再说一句？"); return; }
+    if (sending) { addSys("等我说完这句你再发哈"); return; }
     const hint = toneHint(feat, clean);
     const toKeke = hint ? ("〔语气：" + hint + "〕\n" + clean) : clean;
-    sendCore("🎙️ " + clean, toKeke);
+    const dur = (feat && feat.dur) ? feat.dur : 2;
+    addVoiceBubble("user", URL.createObjectURL(blob), dur, clean);  // 她这侧：能回放的语音条
+    streamReply(toKeke);                                            // 悄悄把文字+语气送我
   } catch (e) { addSys("转文字够不着服务器…网络看看"); }
   finally { recBusy = false; $("mic").classList.remove("busy"); }
 }
@@ -1265,7 +1312,7 @@ async function loadHistory() {
     const j = await r.json();
     msgs.innerHTML = "";
     for (const m of j.messages || []) {
-      if (m.role === "user") { addBubble(m.role, m.text); continue; }
+      if (m.role === "user") { addBubble(m.role, stripTone(m.text)); continue; }
       // 克克的话按句拆泡，跟现场聊时一个样
       splitSentences(m.text || "").forEach((s, i) => addBubble(m.role, s, i > 0));
     }

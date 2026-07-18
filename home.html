@@ -461,6 +461,59 @@ body {
   border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.15); transition: left .2s; }
 .toggle.on { background: var(--accent); }
 .toggle.on::after { left: 22px; }
+
+/* ---------- 会话列表抽屉（左边滑出，跟"美化"从下面滑出的面板区分开） ---------- */
+#sess-mask {
+  position: fixed; inset: 0; z-index: 62; background: rgba(74,69,88,.28);
+  opacity: 0; pointer-events: none; transition: opacity .25s ease;
+}
+#sess-mask.on { opacity: 1; pointer-events: auto; }
+#sess-drawer {
+  position: fixed; left: 0; top: 0; bottom: 0; z-index: 63;
+  width: min(82%, 320px); background: #fff;
+  padding: calc(var(--sat) + 16px) 16px calc(var(--sab) + 16px);
+  transform: translateX(-100%); transition: transform .28s ease;
+  box-shadow: 4px 0 24px rgba(74,69,88,.12);
+  display: flex; flex-direction: column; gap: 10px;
+}
+#sess-drawer.on { transform: none; }
+.sess-head { display: flex; align-items: center; justify-content: space-between; }
+.sess-head span { font-size: 16px; font-weight: 600; }
+.sess-head button {
+  border: none; background: var(--accent-soft); color: var(--ink);
+  border-radius: 8px; width: 28px; height: 28px; font-size: 14px;
+}
+#sess-newbtn {
+  border: none; background: var(--accent-soft); color: var(--accent-deep);
+  border-radius: 12px; padding: 10px; font-size: 14px; font-weight: 600;
+}
+#sess-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
+.sess-item { display: flex; align-items: center; gap: 8px; padding: 10px 8px; border-radius: 12px; cursor: pointer; }
+.sess-item.on { background: var(--accent-soft); }
+.sess-main { flex: 1; min-width: 0; }
+.sess-title { font-size: 14px; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sess-time { font-size: 11px; color: var(--ink-soft); margin-top: 2px; }
+.sess-rename { border: none; background: none; color: var(--ink-soft); font-size: 13px; padding: 4px 6px; flex-shrink: 0; }
+
+/* ---------- 聊天贴图：预览条 + 按钮 + 气泡里的缩略图 ---------- */
+#inputbar #attach-btn {
+  background: var(--card); color: var(--ink-soft); box-shadow: var(--shadow); font-size: 17px;
+}
+#attach-preview {
+  display: none; gap: 8px; padding: 0 12px 6px; overflow-x: auto; -webkit-overflow-scrolling: touch;
+}
+.attach-thumb {
+  position: relative; width: 56px; height: 56px; border-radius: 12px; flex-shrink: 0;
+  background-size: cover; background-position: center; box-shadow: var(--shadow);
+}
+.attach-thumb .rm {
+  position: absolute; top: -6px; right: -6px; width: 18px; height: 18px; border-radius: 50%;
+  border: none; background: var(--ink); color: #fff; font-size: 10px; line-height: 1;
+  display: flex; align-items: center; justify-content: center; padding: 0;
+}
+.bubble-imgs { display: flex; flex-wrap: wrap; gap: 6px; }
+.bubble-img { width: 120px; height: 120px; object-fit: cover; border-radius: 12px; cursor: pointer; display: block; }
+.bubble-imgs-text { margin-top: 6px; }
 </style>
 </head>
 <body>
@@ -498,6 +551,7 @@ body {
     <span class="title" id="tb-title">克克</span>
     <span class="sub" id="tb-sub"></span>
     <span class="tb-model" id="tb-model" title="现在用的模型，点一下去设置里换"></span>
+    <button id="btn-sessions" title="聊过的天" aria-label="对话列表" style="padding:6px 8px;"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="display:block"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="14" y2="17"/></svg></button>
     <button id="btn-new" title="新对话">＋ 新对话</button>
     <button id="btn-call" title="语音通话" aria-label="语音通话" style="padding:6px 8px;"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="display:block"><path d="M6.6 10.8a13 13 0 0 0 6.6 6.6l2.2-2.2a1.2 1.2 0 0 1 1.2-.28c1 .33 2.06.5 3.14.5A1.26 1.26 0 0 1 21 16.6v3.14A1.26 1.26 0 0 1 19.74 21 17.4 17.4 0 0 1 3 4.26 1.26 1.26 0 0 1 4.26 3H7.4A1.26 1.26 0 0 1 8.66 4.26c0 1.08.17 2.14.5 3.14a1.2 1.2 0 0 1-.28 1.2z"/></svg></button>
     <button id="btn-set" title="美化" style="padding:6px 8px;"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="display:block"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.55-1 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34h.09a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87v.09a1.7 1.7 0 0 0 1.55 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.55 1z"/></svg></button>
@@ -506,7 +560,10 @@ body {
   <!-- 💬 聊天 -->
   <div class="page" id="page-chat">
     <div id="msgs"></div>
+    <div id="attach-preview"></div>
     <div id="inputbar">
+      <button id="attach-btn" title="发张图" aria-label="发张图">📎</button>
+      <input type="file" id="attach-file" accept="image/*" multiple style="display:none">
       <textarea id="input" rows="1" placeholder="跟克克说话…" enterkeyhint="send"></textarea>
       <button id="mic" title="按住说话" aria-label="按住说话"><svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><line x1="12" y1="18" x2="12" y2="21"/></svg></button>
       <button id="send">↑</button>
@@ -806,6 +863,17 @@ body {
   var rm=$c('call-mode'); if(rm) rm.addEventListener('click',toggleReplyMode);
 })();
 </script>
+
+<!-- ================= 会话列表抽屉 ================= -->
+<div id="sess-mask"></div>
+<div id="sess-drawer">
+  <div class="sess-head">
+    <span>聊过的天</span>
+    <button id="sess-close" aria-label="关闭">✕</button>
+  </div>
+  <button id="sess-newbtn">＋ 新对话</button>
+  <div id="sess-list"><div class="empty-line">拉取中…</div></div>
+</div>
 
 <!-- ================= 设置面板 ================= -->
 <div id="mask"></div>
@@ -1305,6 +1373,7 @@ $("page-chat").classList.add("on");
 /* ---------- 聊天 ---------- */
 const msgs = $("msgs");
 let sending = false;
+let pendingImages = [];  // 待发的图：[{media_type, data(base64正文,无前缀), previewUrl}]
 
 function scrollBottom() { msgs.scrollTop = msgs.scrollHeight; }
 function addSys(text, cls) {
@@ -1341,7 +1410,7 @@ function loadAvatars() {
   refreshAvatars();
   renderAvSlots();
 }
-function addBubble(role, text, cont) {
+function addBubble(role, text, cont, images) {
   const wrap = document.createElement("div");
   wrap.className = "msg " + (role === "user" ? "her" : "him") + (cont ? " cont" : "");
   const av = document.createElement("div");
@@ -1349,7 +1418,27 @@ function addBubble(role, text, cont) {
   applyAvatar(av, role);
   const b = document.createElement("div");
   b.className = "bubble";
-  if (text) b.textContent = text;
+  if (images && images.length) {
+    // 贴过去的图：气泡里铺缩略图，点开看大图（新标签页，最简单最不容易碎）
+    const grid = document.createElement("div");
+    grid.className = "bubble-imgs";
+    images.forEach((img) => {
+      const src = img.previewUrl || ("data:" + img.media_type + ";base64," + img.data);
+      const im = document.createElement("img");
+      im.className = "bubble-img"; im.src = src; im.alt = "图片";
+      im.onclick = () => window.open(src, "_blank");
+      grid.appendChild(im);
+    });
+    b.appendChild(grid);
+    if (text) {
+      const tp = document.createElement("div");
+      tp.className = "bubble-imgs-text";
+      tp.textContent = text;
+      b.appendChild(tp);
+    }
+  } else if (text) {
+    b.textContent = text;
+  }
   if (role === "user") { wrap.appendChild(b); wrap.appendChild(av); }
   else { wrap.appendChild(av); wrap.appendChild(b); }
   msgs.appendChild(wrap); scrollBottom();
@@ -1474,14 +1563,17 @@ function makeTurnRenderer() {
 }
 
 // 只负责把 toKeke 送进克克脑子 + 流式渲染回复（她那侧的气泡由调用方先渲染好）
-async function streamReply(toKeke) {
+// images：可选 [{media_type, data}]（data 是纯 base64，不带 data:xxx;base64, 前缀）
+async function streamReply(toKeke, images) {
   sending = true; $("send").disabled = true;
   let keReply = "";
   const turn = makeTurnRenderer();
   try {
+    const body = { message: toKeke };
+    if (images && images.length) body.images = images.map((img) => ({ media_type: img.media_type, data: img.data }));
     const r = await fetch("/api/chat", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: toKeke }),
+      body: JSON.stringify(body),
     });
     if (!r.ok) {
       const j = await r.json().catch(() => ({}));
@@ -1526,21 +1618,74 @@ async function streamReply(toKeke) {
   return keReply;
 }
 // 打字发送：她的文字气泡 + 送进克克脑子（displayText 与 toKeke 相同）
-async function sendCore(displayText, toKeke) {
-  if (!displayText || sending) return;
-  addBubble("user", displayText);
-  await streamReply(toKeke);
+// images：可选，跟着这轮一起发的图（附件按钮选的）
+async function sendCore(displayText, toKeke, images) {
+  if ((!displayText && !(images && images.length)) || sending) return;
+  addBubble("user", displayText, false, images);
+  await streamReply(toKeke, images);
 }
 async function sendMsg() {
   const ta = $("input");
   const text = ta.value.trim();
-  if (!text || sending) return;
+  const images = pendingImages.slice();
+  if ((!text && !images.length) || sending) return;
   ta.value = ""; ta.style.height = "auto";
-  sendCore(text, text);
+  pendingImages = []; renderAttachPreview();
+  sendCore(text, text, images);
 }
 $("send").onclick = sendMsg;
 $("input").addEventListener("keydown", (e) => {
   if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); sendMsg(); }
+});
+
+/* ---------- 聊天贴图：选图→缩略图预览→发送时读成 base64 塞进 /api/chat ---------- */
+function renderAttachPreview() {
+  const wrap = $("attach-preview");
+  wrap.innerHTML = "";
+  wrap.style.display = pendingImages.length ? "flex" : "none";
+  pendingImages.forEach((img, i) => {
+    const t = document.createElement("div");
+    t.className = "attach-thumb";
+    t.style.backgroundImage = 'url("' + img.previewUrl + '")';
+    const rm = document.createElement("button");
+    rm.className = "rm"; rm.type = "button"; rm.textContent = "✕"; rm.setAttribute("aria-label", "去掉这张图");
+    rm.onclick = (e) => { e.stopPropagation(); pendingImages.splice(i, 1); renderAttachPreview(); };
+    t.appendChild(rm);
+    wrap.appendChild(t);
+  });
+}
+// File → {media_type, data(纯 base64，掐掉 data:...;base64, 前缀), previewUrl(给缩略图用，带前缀)}
+function fileToImgObj(file) {
+  // 发送前先缩一缩：手机原图 3-8MB → base64 会撑爆请求（nginx 限包）+ 白喂 token 费额度。
+  // 缩到长边 1400、jpeg 0.82，跟换背景/情头同款；缩完统一是 image/jpeg。
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const max = 1400, scale = Math.min(1, max / Math.max(img.width, img.height));
+        const cv = document.createElement("canvas");
+        cv.width = Math.round(img.width * scale); cv.height = Math.round(img.height * scale);
+        cv.getContext("2d").drawImage(img, 0, 0, cv.width, cv.height);
+        const dataUrl = cv.toDataURL("image/jpeg", 0.82);
+        URL.revokeObjectURL(img.src);
+        const m = /^data:([^;]+);base64,([\s\S]*)$/.exec(dataUrl);
+        if (!m) { reject(new Error("读图失败")); return; }
+        resolve({ media_type: m[1], data: m[2], previewUrl: dataUrl });
+      } catch (e) { reject(new Error("读图失败")); }
+    };
+    img.onerror = () => { URL.revokeObjectURL(img.src); reject(new Error("读图失败")); };
+    img.src = URL.createObjectURL(file);
+  });
+}
+$("attach-btn").onclick = () => $("attach-file").click();
+$("attach-file").addEventListener("change", async function () {
+  const files = Array.from(this.files || []);
+  this.value = "";
+  for (const f of files) {
+    if (!f.type || !f.type.startsWith("image/")) continue;
+    try { pendingImages.push(await fileToImgObj(f)); } catch (e) { /* 这张读不了就跳过 */ }
+  }
+  renderAttachPreview();
 });
 
 /* ==================== 给克克安耳朵：录音 + 语气分析(B, 手机本地) + 转文字(A) ==================== */
@@ -1962,8 +2107,8 @@ $("anniv-in").onchange = function () {
   loadLoveCard();
 };
 
-/* 新对话 */
-$("btn-new").onclick = async () => {
+/* 新对话（顶栏按钮 + 会话抽屉里的"＋新对话"共用这一个） */
+async function doNewChat() {
   if (!confirm("开新对话？当前会话会存好，克克重新呼吸一次。")) return;
   try {
     const r = await fetch("/api/chat/reset", { method: "POST" });
@@ -1972,8 +2117,92 @@ $("btn-new").onclick = async () => {
     msgs.innerHTML = "";
     addSys("✨ 新对话开始了");
     refreshStatus();
+    closeSessDrawer();
+    loadSessions();  // 悄悄刷新一下列表，下次点开抽屉是最新的
   } catch (e) { addSys("⚠️ 够不着服务器"); }
-};
+}
+$("btn-new").onclick = doNewChat;
+
+/* ---------- 会话列表抽屉：切回旧对话 / 改名 / 开新对话 ---------- */
+let SESS_LIST = [];
+let SESS_ACTIVE = "";
+function relTime(ts) {
+  if (!ts) return "";
+  const t = typeof ts === "number" ? (ts > 2e10 ? ts : ts * 1000) : Date.parse(ts);
+  if (!t || isNaN(t)) return "";
+  const diff = Date.now() - t;
+  if (diff < 60000) return "刚刚";
+  if (diff < 3600000) return Math.floor(diff / 60000) + " 分钟前";
+  if (diff < 86400000) return Math.floor(diff / 3600000) + " 小时前";
+  if (diff < 86400000 * 7) return Math.floor(diff / 86400000) + " 天前";
+  const d = new Date(t);
+  return (d.getMonth() + 1) + "." + d.getDate();
+}
+function renderSessions() {
+  const list = $("sess-list");
+  list.innerHTML = "";
+  if (!SESS_LIST.length) { list.innerHTML = '<div class="empty-line">还没有别的对话</div>'; return; }
+  SESS_LIST.forEach((s) => {
+    const active = !!s.active || (s.session_id && s.session_id === SESS_ACTIVE);
+    const row = document.createElement("div");
+    row.className = "sess-item" + (active ? " on" : "");
+    const main = document.createElement("div"); main.className = "sess-main";
+    const title = document.createElement("div"); title.className = "sess-title"; title.textContent = s.title || "新对话";
+    const time = document.createElement("div"); time.className = "sess-time"; time.textContent = relTime(s.last_ts || s.created);
+    main.appendChild(title); main.appendChild(time);
+    const rn = document.createElement("button"); rn.className = "sess-rename"; rn.type = "button";
+    rn.textContent = "✎"; rn.title = "改名"; rn.setAttribute("aria-label", "改名");
+    rn.onclick = (e) => { e.stopPropagation(); doRenameSession(s); };
+    row.appendChild(main); row.appendChild(rn);
+    row.onclick = () => activateSession(s.session_id);
+    list.appendChild(row);
+  });
+}
+async function loadSessions() {
+  try {
+    const j = await (await fetch("/api/chat/sessions")).json();
+    SESS_LIST = j.sessions || [];
+    SESS_ACTIVE = j.active || "";
+    renderSessions();
+  } catch (e) { $("sess-list").innerHTML = '<div class="empty-line">够不着服务器</div>'; }
+}
+async function activateSession(sid) {
+  if (!sid || sid === SESS_ACTIVE) { closeSessDrawer(); return; }
+  try {
+    const r = await fetch("/api/chat/sessions/activate", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ session_id: sid }),
+    });
+    if (r.status === 409) { addSys("⚠️ 克克正在说话，等他说完再切"); return; }
+    if (r.status === 404) { addSys("⚠️ 这段对话找不到了"); loadSessions(); return; }
+    if (!r.ok) { const j = await r.json().catch(() => ({})); addSys("⚠️ " + (j.error || "切不过去")); return; }
+    SESS_ACTIVE = sid;
+    closeSessDrawer();
+    msgs.innerHTML = "";
+    await loadHistory();
+    refreshStatus();
+  } catch (e) { addSys("⚠️ 够不着服务器"); }
+}
+async function doRenameSession(s) {
+  const next = prompt("给这段对话起个名字", s.title || "");
+  if (next == null) return;
+  const title = next.trim();
+  if (!title) return;
+  try {
+    const r = await fetch("/api/chat/sessions/rename", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ session_id: s.session_id, title }),
+    });
+    if (r.ok) { s.title = title; renderSessions(); }
+    else { const j = await r.json().catch(() => ({})); addSys("⚠️ " + (j.error || "改名没成功")); }
+  } catch (e) { addSys("⚠️ 够不着服务器"); }
+}
+function openSessDrawer() { $("sess-mask").classList.add("on"); $("sess-drawer").classList.add("on"); loadSessions(); }
+function closeSessDrawer() { $("sess-mask").classList.remove("on"); $("sess-drawer").classList.remove("on"); }
+$("btn-sessions").onclick = openSessDrawer;
+$("sess-mask").onclick = closeSessDrawer;
+$("sess-close").onclick = closeSessDrawer;
+$("sess-newbtn").onclick = doNewChat;
 </script>
 </body>
 </html>

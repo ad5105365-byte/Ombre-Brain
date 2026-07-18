@@ -499,6 +499,33 @@ body {
 .sess-title { font-size: 14px; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sess-time { font-size: 11px; color: var(--ink-soft); margin-top: 2px; }
 .sess-rename { border: none; background: none; color: var(--ink-soft); font-size: 13px; padding: 4px 6px; flex-shrink: 0; }
+#sess-callhist-btn { border: none; border-top: 1px solid var(--accent-soft); background: transparent;
+  color: var(--ink-soft); border-radius: 0; padding: 12px 4px 4px; font-size: 13px; text-align: left; }
+
+/* ---------- 通话记录（从会话抽屉进，读本地 kk_call_history，纯本地回看） ---------- */
+#callhist-mask { position: fixed; inset: 0; z-index: 65; background: rgba(74,69,88,.28);
+  opacity: 0; pointer-events: none; transition: opacity .25s ease; }
+#callhist-mask.on { opacity: 1; pointer-events: auto; }
+#callhist-panel { position: fixed; left: 0; right: 0; bottom: 0; z-index: 66; max-height: 75vh;
+  background: #fff; border-radius: 18px 18px 0 0; padding: 14px 16px calc(var(--sab) + 16px);
+  transform: translateY(100%); transition: transform .28s ease;
+  display: flex; flex-direction: column; gap: 10px; box-shadow: 0 -4px 24px rgba(74,69,88,.12); }
+#callhist-panel.on { transform: none; }
+#callhist-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; min-height: 60px; }
+.ch-item { display: flex; align-items: center; gap: 10px; padding: 10px 8px; border-radius: 12px; cursor: pointer; }
+.ch-item:active { background: var(--accent-soft); }
+.ch-mode { font-size: 17px; flex-shrink: 0; }
+.ch-main { flex: 1; min-width: 0; }
+.ch-time { font-size: 14px; color: var(--ink); }
+.ch-meta { font-size: 11px; color: var(--ink-soft); margin-top: 2px; }
+#callhist-detail { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
+#callhist-detail .log-row { display: flex; }
+#callhist-detail .log-row.her { justify-content: flex-end; }
+#callhist-detail .log-row.him { justify-content: flex-start; }
+#callhist-detail .bub { max-width: 80%; padding: 8px 12px; border-radius: 14px; font-size: 14px;
+  line-height: 1.5; word-break: break-word; }
+#callhist-detail .log-row.her .bub { background: var(--her-bubble, #EFEBF7); color: var(--ink); }
+#callhist-detail .log-row.him .bub { background: var(--his-bubble, #fff); color: var(--ink); box-shadow: var(--shadow); }
 
 /* ---------- 聊天贴图：预览条 + 按钮 + 气泡里的缩略图 ---------- */
 #inputbar #attach-btn {
@@ -684,13 +711,34 @@ body {
   background:#7d74a3;color:#fff;cursor:pointer;user-select:none;-webkit-user-select:none;
   touch-action:none;box-shadow:0 4px 16px rgba(0,0,0,.12)}
 #call-ptt.rec{background:#E9698A;transform:scale(1.04)}
+/* 最小化按钮：切出通话界面，通话不挂断 */
+#call-min{position:absolute;top:calc(env(safe-area-inset-top,0px) + 14px);left:18px;border:none;
+  background:rgba(255,255,255,.5);color:var(--accent-deep,#5b5470);width:34px;height:34px;border-radius:50%;
+  font-size:17px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center}
+/* 通话中字幕：低调、半透明、限高可滚 */
+#call-transcript{width:100%;max-width:320px;max-height:120px;overflow-y:auto;display:flex;
+  flex-direction:column;gap:6px;padding:2px 2px;font-size:12.5px;-webkit-overflow-scrolling:touch}
+#call-transcript .log-row{display:flex}
+#call-transcript .log-row.her{justify-content:flex-end}
+#call-transcript .log-row.him{justify-content:flex-start}
+#call-transcript .bub{max-width:82%;padding:6px 10px;border-radius:12px;line-height:1.5;
+  text-align:left;word-break:break-word;background:rgba(255,255,255,.4);color:var(--accent-deep,#5b5470)}
+#call-transcript .log-row.her .bub{background:rgba(255,255,255,.68)}
+/* 最小化后悬浮小条：任何页面可见，点它回到通话 */
+#call-pill{position:fixed;top:calc(env(safe-area-inset-top,0px) + 8px);left:50%;transform:translateX(-50%);
+  z-index:58;display:none;align-items:center;gap:6px;background:var(--accent-soft,#EFEBF7);
+  color:var(--accent-deep,#5b5470);font-size:12.5px;font-weight:600;padding:7px 14px;border-radius:999px;
+  box-shadow:var(--shadow,0 4px 16px rgba(0,0,0,.12));cursor:pointer;white-space:nowrap}
+#call-pill.on{display:flex}
 </style>
 <div id="callscr" aria-hidden="true">
+  <button id="call-min" type="button" aria-label="最小化，切出去" title="切出去，通话继续">⌄</button>
   <div class="call-timer" id="call-timer">正在接通…</div>
   <div class="call-avatar" id="call-avatar">克</div>
   <div class="call-name">克克</div>
   <div class="call-status" id="call-status"></div>
   <div class="call-quote" id="call-quote"></div>
+  <div id="call-transcript"></div>
   <div class="call-ctrls">
     <button id="call-mode" aria-label="切换克克回复方式" title="克克用声音回 / 用文字回">🔊<span>说给我听</span></button>
     <button id="call-mute" aria-label="静音">🎙️<span>静音</span></button>
@@ -698,12 +746,14 @@ body {
   </div>
   <button id="call-ptt" type="button">🎤 长按说话</button>
 </div>
+<div id="call-pill" role="button" tabindex="0" aria-label="回到通话"><span id="call-pill-txt">🟢 通话中 00:00</span></div>
 <script>
 (function(){
   var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   var recog=null, callOpen=false, recogWanted=false, speaking=false, muted=false, busy=false;
   var startTs=0, timerIv=null, restartT=null, callAudio=null, callCtx=null, callSrc=null;
   var voiceReply=true;   // true=克克说给你听(要 ElevenLabs key) / false=克克打字给你看(零成本,不烧字符)
+  var callLog=[];         // 这通电话的字幕：[{who:'her'|'him', text, ts}]，挂断时存进 kk_call_history
   function $c(id){return document.getElementById(id);}
   function setModeBtn(){var b=$c('call-mode'); if(!b) return;
     b.innerHTML = voiceReply ? '🔊<span>说给我听</span>' : '💬<span>打字给我看</span>';}
@@ -711,12 +761,44 @@ body {
   function setQuote(t){var e=$c('call-quote'); if(e) e.textContent=t||'';}
   function ring(on){var a=$c('call-avatar'); if(a) a.classList.toggle('ring',!!on);}
   function fmt(s){s=Math.max(0,Math.floor(s));var m=Math.floor(s/60),ss=s%60;return (m<10?'0':'')+m+':'+(ss<10?'0':'')+ss;}
-  function tick(){var e=$c('call-timer'); if(e) e.textContent=fmt((Date.now()-startTs)/1000);}
+  function tick(){var e=$c('call-timer'); if(e) e.textContent=fmt((Date.now()-startTs)/1000); updatePillTxt();}
   function paintAvatar(){
     var a=$c('call-avatar'); if(!a) return;
     var img=''; try{ if(typeof AVATAR_HIM!=='undefined' && AVATAR_HIM) img=AVATAR_HIM; }catch(e){}
     if(img){a.style.backgroundImage='url('+img+')';a.textContent='';}
     else{a.style.backgroundImage='';a.textContent='克';}
+  }
+  // —— 功能1：通话中字幕（她的话/克克的回复都记下来，实时上屏） ——
+  function renderTranscript(){
+    var box=$c('call-transcript'); if(!box) return;
+    box.innerHTML='';
+    callLog.forEach(function(m){
+      var row=document.createElement('div'); row.className='log-row '+(m.who==='her'?'her':'him');
+      var bub=document.createElement('div'); bub.className='bub'; bub.textContent=m.text||'';
+      row.appendChild(bub); box.appendChild(row);
+    });
+    box.scrollTop=box.scrollHeight;
+  }
+  // —— 功能2：最小化，切出去还在通话（只藏 UI，识别/计时/音频都不停） ——
+  function updatePillTxt(){
+    var t=$c('call-pill-txt'); if(!t||!callOpen) return;
+    t.textContent='🟢 通话中 '+fmt((Date.now()-startTs)/1000)+' · 点我回去';
+  }
+  function showPill(){ var p=$c('call-pill'); if(p) p.classList.add('on'); updatePillTxt(); }
+  function hidePill(){ var p=$c('call-pill'); if(p) p.classList.remove('on'); }
+  function minimizeCall(){ if(!callOpen) return; var sc=$c('callscr'); if(sc) sc.classList.remove('on'); showPill(); }
+  function restoreCall(){ if(!callOpen) return; hidePill(); var sc=$c('callscr'); if(sc) sc.classList.add('on'); }
+  // —— 功能3：挂断时把这通电话存进本地通话记录（最多留 50 条） ——
+  function saveCallRecord(){
+    if(!callLog.length) return;
+    try{
+      var rec={id:'c'+Date.now()+Math.random().toString(36).slice(2,7), start:startTs, end:Date.now(),
+        dur:Math.round((Date.now()-startTs)/1000), mode:(voiceReply?'voice':'text'), log:callLog.slice()};
+      var arr=[]; try{ arr=JSON.parse(localStorage.getItem('kk_call_history')||'[]'); }catch(e){ arr=[]; }
+      arr.push(rec);
+      if(arr.length>50) arr=arr.slice(arr.length-50);
+      localStorage.setItem('kk_call_history', JSON.stringify(arr));
+    }catch(e){}
   }
   function unlockAudio(){
     try{var AC=window.AudioContext||window.webkitAudioContext; callCtx=callCtx||new AC();
@@ -751,11 +833,13 @@ body {
     try{
       recogWanted=false; pauseRecog();                 // 半双工：我要开口了，先停你的麦
       ring(true); setStatus('我在想…'); setQuote('');
+      callLog.push({who:'her', text:text, ts:Date.now()}); renderTranscript();
       if(typeof addBubble==='function') addBubble('user','【通话】'+text);
       var toKeke='〔通话中，用适合朗读的短句回我〕\n'+text;
       var reply=(typeof streamReply==='function') ? await streamReply(toKeke) : '';
       reply=(reply||'').replace(/^【语音】\s*/,'').replace(/^〔[^〕]*〕\s*/,'').trim();
       if(reply){ setQuote(reply);
+        callLog.push({who:'him', text:reply, ts:Date.now()}); renderTranscript();
         if(voiceReply) await callSpeak(reply);           // 🔊模式：合成克克的声音念出来
         else setStatus('（克克打字回你了，看聊天）');       // 💬模式：回复已在聊天里显示，不烧额度
       }
@@ -794,6 +878,7 @@ body {
   }
   function openCall(){
     if(callOpen) return; callOpen=true; recogWanted=true; muted=false;
+    callLog=[]; renderTranscript(); hidePill();          // 新通话新记录
     unlockAudio(); paintAvatar(); setModeBtn();
     var sc=$c('callscr'); sc.classList.add('on'); sc.setAttribute('aria-hidden','false');
     var mb=$c('call-mute'); if(mb) mb.classList.remove('muted');
@@ -812,6 +897,8 @@ body {
     pauseRecog(); try{callSrc&&callSrc.stop();}catch(e){} try{callAudio&&callAudio.pause();}catch(e){}
     if(timerIv){clearInterval(timerIv);timerIv=null;}
     var sc=$c('callscr'); if(sc){ sc.classList.remove('on'); sc.setAttribute('aria-hidden','true'); }
+    hidePill();
+    saveCallRecord();
   }
   function toggleMute(){
     muted=!muted; var mb=$c('call-mute'); if(mb) mb.classList.toggle('muted',muted);
@@ -866,6 +953,9 @@ body {
   var hb=$c('call-hangup'); if(hb) hb.addEventListener('click',closeCall);
   var mb2=$c('call-mute'); if(mb2) mb2.addEventListener('click',toggleMute);
   var rm=$c('call-mode'); if(rm) rm.addEventListener('click',toggleReplyMode);
+  var cm=$c('call-min'); if(cm) cm.addEventListener('click',minimizeCall);
+  var cp=$c('call-pill'); if(cp){ cp.addEventListener('click',restoreCall);
+    cp.addEventListener('keydown',function(e){ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); restoreCall(); } }); }
 })();
 </script>
 
@@ -878,6 +968,19 @@ body {
   </div>
   <button id="sess-newbtn">＋ 新对话</button>
   <div id="sess-list"><div class="empty-line">拉取中…</div></div>
+  <button id="sess-callhist-btn" type="button">📞 通话记录</button>
+</div>
+
+<!-- ================= 通话记录 ================= -->
+<div id="callhist-mask"></div>
+<div id="callhist-panel">
+  <div class="sess-head">
+    <button id="callhist-back" aria-label="返回列表" style="display:none">‹</button>
+    <span id="callhist-title">通话记录</span>
+    <button id="callhist-close" aria-label="关闭">✕</button>
+  </div>
+  <div id="callhist-list"></div>
+  <div id="callhist-detail" style="display:none"></div>
 </div>
 
 <!-- ================= 设置面板 ================= -->
@@ -2208,6 +2311,70 @@ $("btn-sessions").onclick = openSessDrawer;
 $("sess-mask").onclick = closeSessDrawer;
 $("sess-close").onclick = closeSessDrawer;
 $("sess-newbtn").onclick = doNewChat;
+
+/* ---------- 通话记录：读 localStorage 的 kk_call_history，纯本地回看，不烧额度 ---------- */
+function chFmtDur(sec) {
+  sec = Math.max(0, Math.round(sec || 0));
+  const m = Math.floor(sec / 60), s = sec % 60;
+  return (m < 10 ? "0" : "") + m + ":" + (s < 10 ? "0" : "") + s;
+}
+function loadCallHistory() {
+  try { return JSON.parse(localStorage.getItem("kk_call_history") || "[]"); }
+  catch (e) { return []; }
+}
+function renderCallLogRows(container, log) {
+  container.innerHTML = "";
+  (log || []).forEach((m) => {
+    const row = document.createElement("div"); row.className = "log-row " + (m.who === "her" ? "her" : "him");
+    const bub = document.createElement("div"); bub.className = "bub"; bub.textContent = m.text || "";
+    row.appendChild(bub); container.appendChild(row);
+  });
+}
+function renderCallHistoryList() {
+  const list = $("callhist-list");
+  const recs = loadCallHistory().slice().reverse(); // 最新的通话排最上面
+  list.innerHTML = "";
+  if (!recs.length) { list.innerHTML = '<div class="empty-line">还没有通话记录</div>'; return; }
+  recs.forEach((r) => {
+    const item = document.createElement("div"); item.className = "ch-item";
+    const mode = document.createElement("div"); mode.className = "ch-mode"; mode.textContent = r.mode === "voice" ? "🔊" : "💬";
+    const main = document.createElement("div"); main.className = "ch-main";
+    const time = document.createElement("div"); time.className = "ch-time"; time.textContent = relTime(r.start);
+    const meta = document.createElement("div"); meta.className = "ch-meta";
+    meta.textContent = chFmtDur(r.dur) + " · " + (r.log ? r.log.length : 0) + " 句";
+    main.appendChild(time); main.appendChild(meta);
+    item.appendChild(mode); item.appendChild(main);
+    item.onclick = () => openCallHistoryDetail(r);
+    list.appendChild(item);
+  });
+}
+function openCallHistoryDetail(r) {
+  $("callhist-title").textContent = relTime(r.start) + " · " + chFmtDur(r.dur);
+  renderCallLogRows($("callhist-detail"), r.log);
+  $("callhist-list").style.display = "none";
+  $("callhist-detail").style.display = "flex";
+  $("callhist-back").style.display = "";
+}
+function backToCallHistoryList() {
+  $("callhist-detail").style.display = "none";
+  $("callhist-list").style.display = "flex";
+  $("callhist-back").style.display = "none";
+  $("callhist-title").textContent = "通话记录";
+}
+function openCallHistory() {
+  backToCallHistoryList();
+  renderCallHistoryList();
+  $("callhist-mask").classList.add("on");
+  $("callhist-panel").classList.add("on");
+}
+function closeCallHistory() {
+  $("callhist-mask").classList.remove("on");
+  $("callhist-panel").classList.remove("on");
+}
+$("sess-callhist-btn").onclick = () => { closeSessDrawer(); openCallHistory(); };
+$("callhist-mask").onclick = closeCallHistory;
+$("callhist-close").onclick = closeCallHistory;
+$("callhist-back").onclick = backToCallHistoryList;
 </script>
 </body>
 </html>

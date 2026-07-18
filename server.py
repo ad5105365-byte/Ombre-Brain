@@ -3696,7 +3696,12 @@ async def api_chat(request):
     except Exception:
         return JSONResponse({"error": "invalid JSON"}, status_code=400)
     text = (body.get("message") or "").strip()
-    if not text:
+    # 贴图：跟在 Claude Code 里粘图给克克同一套——images=[{media_type,data}]，
+    # data 是 base64 正文，塞进这条消息本身（不是存盘让他 Read）。
+    raw_images = body.get("images")
+    images = [img for img in raw_images if isinstance(img, dict) and img.get("data")] \
+        if isinstance(raw_images, list) else []
+    if not text and not images:
         return JSONResponse({"error": "空消息"}, status_code=400)
     bridge = _get_chat_bridge()
     if not bridge.available():
@@ -3708,7 +3713,7 @@ async def api_chat(request):
                             status_code=409)
 
     async def gen():
-        async for ev in bridge.ask(text):
+        async for ev in bridge.ask(text, images=images):
             yield f"data: {_json_lib.dumps(ev, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(gen(), media_type="text/event-stream", headers={
@@ -3809,6 +3814,62 @@ async def api_chat_model_set(request):
         })
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
+
+
+# --- 多会话 / 会话列表（让她能切回旧对话）---
+# 里子在 chat_bridge.py 的登记册（.chat_sessions.json）。旧对话的 jsonl
+# 本来就在 ~/.claude/projects 下躺着，这只是给它们建个"目录"能被列出来+切回去。
+@mcp.custom_route("/api/chat/sessions", methods=["GET"])
+async def api_chat_sessions_list(request):
+    """会话列表：登记册里所有对话，最新活跃的排前面，标出当前 active。"""
+    from starlette.responses import JSONResponse
+    err = _require_auth(request)
+    if err: return err
+    bridge = _get_chat_bridge()
+    return JSONResponse({"sessions": bridge.list_sessions(), "active": bridge.load_session()})
+
+
+@mcp.custom_route("/api/chat/sessions/activate", methods=["POST"])
+async def api_chat_sessions_activate(request):
+    """切回某个旧会话：忙着不让切；jsonl 已经没了也不让切（找不到真身）。"""
+    from starlette.responses import JSONResponse
+    err = _require_auth(request)
+    if err: return err
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "invalid JSON"}, status_code=400)
+    session_id = (body.get("session_id") or "").strip()
+    if not session_id:
+        return JSONResponse({"error": "缺 session_id"}, status_code=400)
+    bridge = _get_chat_bridge()
+    if bridge.busy():
+        return JSONResponse({"error": "克克正在说话，等他说完再切"}, status_code=409)
+    ok = await bridge.activate_session(session_id)
+    if not ok:
+        return JSONResponse({"error": "找不到这个会话"}, status_code=404)
+    return JSONResponse({"ok": True})
+
+
+@mcp.custom_route("/api/chat/sessions/rename", methods=["POST"])
+async def api_chat_sessions_rename(request):
+    """改会话标题（只改列表显示用的那张档案卡，不动 jsonl 真身）。"""
+    from starlette.responses import JSONResponse
+    err = _require_auth(request)
+    if err: return err
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "invalid JSON"}, status_code=400)
+    session_id = (body.get("session_id") or "").strip()
+    title = (body.get("title") or "").strip()
+    if not session_id:
+        return JSONResponse({"error": "缺 session_id"}, status_code=400)
+    bridge = _get_chat_bridge()
+    ok = bridge.rename_session(session_id, title)
+    if not ok:
+        return JSONResponse({"error": "找不到这个会话"}, status_code=404)
+    return JSONResponse({"ok": True})
 
 
 # ============================================================

@@ -249,6 +249,105 @@ class ChatBridge:
         except Exception:
             logger.warning("chat: session 文件清除失败", exc_info=True)
 
+    # --- 会话登记册（多会话列表，让她能切回旧对话）---
+    # 只在这存"档案卡"（id/标题/时间），真身还是那份 jsonl，
+    # 登记册丢了大不了标题变空，切会话功能照旧能按 session_id 工作。
+    def _sessions_file(self) -> str:
+        return os.path.join(self.state_dir, ".chat_sessions.json")
+
+    def _load_sessions_registry(self) -> list[dict]:
+        try:
+            with open(self._sessions_file(), "r", encoding="utf-8") as f:
+                data = json.load(f)
+                return data if isinstance(data, list) else []
+        except Exception:
+            return []
+
+    def _save_sessions_registry(self, regs: list[dict]) -> None:
+        try:
+            with open(self._sessions_file(), "w", encoding="utf-8") as f:
+                json.dump(regs, f, ensure_ascii=False)
+        except Exception:
+            logger.warning("chat: 会话登记册落盘失败", exc_info=True)
+
+    def _upsert_session(self, session_id: str, title: str | None = None) -> None:
+        """新会话追加进册，已有会话只刷新 last_ts（每轮 init/done 都会调）。"""
+        if not session_id:
+            return
+        regs = self._load_sessions_registry()
+        now = time.time()
+        for e in regs:
+            if e.get("session_id") == session_id:
+                e["last_ts"] = now
+                if title and not e.get("title"):
+                    e["title"] = title
+                self._save_sessions_registry(regs)
+                return
+        regs.append({
+            "session_id": session_id,
+            "title": title or "",
+            "created": now,
+            "last_ts": now,
+        })
+        self._save_sessions_registry(regs)
+
+    def _derive_title(self, session_id: str) -> str:
+        """惰性补标题：翻该会话的 jsonl，取第一条她亲手打的字，掐前 20 个字。"""
+        path = find_session_jsonl(session_id)
+        if not path:
+            return "（新对话）"
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                # limit 给够大：parse_history_lines 只截尾巴，给够大等于不截
+                msgs = parse_history_lines(f, limit=10**9)
+        except Exception:
+            return "（新对话）"
+        for m in msgs:
+            if m["role"] == "user" and m["text"].strip():
+                t = m["text"].strip().replace("\n", " ")
+                return (t[:20] + "…") if len(t) > 20 else t
+        return "（新对话）"
+
+    def list_sessions(self) -> list[dict]:
+        """登记册全部会话，最新活跃的排前面；缺标题的当场惰性补一个。"""
+        regs = self._load_sessions_registry()
+        active_id = self.load_session()
+        changed = False
+        for e in regs:
+            if not e.get("title"):
+                e["title"] = self._derive_title(e.get("session_id", ""))
+                changed = True
+        if changed:
+            self._save_sessions_registry(regs)
+        regs_sorted = sorted(regs, key=lambda e: e.get("last_ts", 0), reverse=True)
+        return [{
+            "session_id": e.get("session_id", ""),
+            "title": e.get("title") or "（新对话）",
+            "created": e.get("created"),
+            "last_ts": e.get("last_ts"),
+            "active": e.get("session_id") == active_id,
+        } for e in regs_sorted]
+
+    async def activate_session(self, session_id: str) -> bool:
+        """切回某个旧会话：校验 jsonl 还在，写成 active 指针 + 掐掉当前常驻进程
+        （下条消息会 --resume 到它，记忆重新接上）。忙不忙由路由挡，这里不管。"""
+        if not session_id or not find_session_jsonl(session_id):
+            return False
+        self.save_session(session_id)
+        self._upsert_session(session_id)
+        await self._kill_proc()
+        return True
+
+    def rename_session(self, session_id: str, title: str) -> bool:
+        """改登记册里的标题（列表显示用，不动 jsonl 真身）。"""
+        regs = self._load_sessions_registry()
+        for e in regs:
+            if e.get("session_id") == session_id:
+                e["title"] = title
+                self._save_sessions_registry(regs)
+                return True
+        return False
+
     # --- 状态 ---
     def available(self) -> bool:
         """这台机器能不能开聊天室（有 claude + 有 keke 目录）。"""
@@ -336,8 +435,9 @@ class ChatBridge:
             await self._spawn(self.load_session())
 
     # --- 主入口 ---
-    async def ask(self, text: str):
-        """发一条消息，异步产出前端事件。单飞：并发调用请先查 busy()。"""
+    async def ask(self, text: str, images: list[dict] | None = None):
+        """发一条消息，异步产出前端事件。单飞：并发调用请先查 busy()。
+        images：可选，[{"media_type","data"}]，聊天页直接贴图用，见 _send_user。"""
         if not self.claude_bin:
             yield {"type": "done", "ok": False, "session_id": "",
                    "error": "这台机器上没有 claude CLI（聊天室只在 VPS 的家里开门）"}
@@ -355,7 +455,7 @@ class ChatBridge:
             await self._ensure_proc()
             sent_retry = False
             while True:
-                ok_sent = await self._send_user(text)
+                ok_sent = await self._send_user(text, images)
                 if not ok_sent:
                     # 进程死了（多半是 --resume 的会话找不到了）：清会话重来一次
                     if sent_retry:
@@ -390,7 +490,7 @@ class ChatBridge:
                         sent_retry = True
                         self.clear_session()
                         await self._spawn("")
-                        if await self._send_user(text):
+                        if await self._send_user(text, images):
                             deadline = time.time() + self.timeout_s
                             continue
                     yield self._err_done("克克的进程断线了：" + self._stderr_hint())
@@ -403,9 +503,11 @@ class ChatBridge:
                 for ev in map_cli_events(obj, self._map_state):
                     if ev["type"] == "init" and ev.get("session_id"):
                         self.save_session(ev["session_id"])
+                        self._upsert_session(ev["session_id"])
                     if ev["type"] == "done":
                         if ev.get("session_id"):
                             self.save_session(ev["session_id"])
+                            self._upsert_session(ev["session_id"])
                         turn_done = True
                     yield ev
                 if turn_done:
@@ -448,12 +550,32 @@ class ChatBridge:
             self.lock.release()
             logger.info("chat: 断线轮已在后台流完")
 
-    async def _send_user(self, text: str) -> bool:
+    async def _send_user(self, text: str, images: list[dict] | None = None) -> bool:
+        """喂常驻进程一条用户消息。images=[{"media_type","data"}]（data 是 base64 正文）；
+        跟在 Claude Code 里粘图给克克同一套格式——Anthropic Messages API 的
+        image content block，直接塞进这条消息本身，克克当场看见，不走存盘 Read 的绕路。
+        不带图时 content 仍是纯字符串，跟改造前一模一样（向后兼容，老测试不能碎）。"""
         if not self.alive():
             return False
+        if images:
+            content: list[dict] = []
+            if text:
+                content.append({"type": "text", "text": text})
+            for img in images:
+                content.append({
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": img.get("media_type", "image/png"),
+                        "data": img.get("data", ""),
+                    },
+                })
+            message_content: str | list[dict] = content
+        else:
+            message_content = text
         line = json.dumps({
             "type": "user",
-            "message": {"role": "user", "content": text},
+            "message": {"role": "user", "content": message_content},
         }, ensure_ascii=False) + "\n"
         try:
             self.proc.stdin.write(line.encode("utf-8"))
@@ -471,17 +593,19 @@ class ChatBridge:
                 "session_id": self.load_session(), "error": msg}
 
     async def reset(self) -> None:
-        """新对话：掐进程 + 清会话。渡口交接由克克在对话里自己做，这里只管壳。"""
+        """新对话：掐进程 + 清 active 指针。渡口交接由克克在对话里自己做，这里只管壳。
+        注意：只清 .chat_session.json 这个"当前是谁"的指针，登记册（.chat_sessions.json）
+        不动——旧对话还留在册子里，能从会话列表里切回去。"""
         await self._kill_proc()
         self.clear_session()
 
-    async def ask_collect(self, text: str) -> tuple[bool, str]:
+    async def ask_collect(self, text: str, images: list[dict] | None = None) -> tuple[bool, str]:
         """发一条消息，把克克说出口的正文攒成一整段返回 (ok, text)。
         给「主动找你」用：塞藏头引信、收他开口那句话（走同一套单飞锁+进程，
         落进同一会话历史，跟她亲手发的没区别）。思考链不收——门铃只要说出口的话。"""
         ok = True
         parts: list[str] = []
-        async for ev in self.ask(text):
+        async for ev in self.ask(text, images):
             t = ev.get("type")
             if t == "delta" and ev.get("block") == "text":
                 parts.append(ev.get("text", ""))

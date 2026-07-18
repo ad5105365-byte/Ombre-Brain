@@ -308,15 +308,70 @@ class ChatBridge:
                 return (t[:20] + "…") if len(t) > 20 else t
         return "（新对话）"
 
+    def _session_cwd_matches(self, path: str) -> bool:
+        """这段 jsonl 是不是在"聊天工作目录"(self.cwd)里跑的——靠 jsonl 里记的
+        cwd 字段认，不靠猜 ~/.claude/projects 的目录名转换规则。前若干行里找到
+        cwd 就判定；找不到就当不是（宁可漏，别把 ssh 干活的会话混进聊天列表）。"""
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                for i, raw in enumerate(f):
+                    if i > 120:
+                        break
+                    if '"cwd"' not in raw:
+                        continue
+                    try:
+                        c = json.loads(raw).get("cwd")
+                    except Exception:
+                        continue
+                    if c:
+                        return os.path.normpath(c) == os.path.normpath(self.cwd)
+        except Exception:
+            pass
+        return False
+
+    def _discover_chat_sessions(self) -> list[dict]:
+        """扫 ~/.claude/projects 下所有 jsonl，挑出属于聊天目录的旧会话（登记册
+        上线前就存在、没被记过的那些）。返回 [{session_id, created, last_ts}]（时间用
+        文件 mtime 兜底）。只挑有真对话内容的（空/纯工具会话跳过）。"""
+        root = os.path.expanduser("~/.claude/projects")
+        out: list[dict] = []
+        if not os.path.isdir(root):
+            return out
+        for path in glob.glob(os.path.join(root, "*", "*.jsonl")):
+            if not self._session_cwd_matches(path):
+                continue
+            sid = os.path.splitext(os.path.basename(path))[0]
+            title = self._derive_title(sid)
+            if title == "（新对话）":
+                # 没有一句她亲手打的字 → 多半是空壳/纯工具，别摆进列表添乱
+                continue
+            try:
+                mt = os.path.getmtime(path)
+            except OSError:
+                mt = 0.0
+            out.append({"session_id": sid, "created": mt, "last_ts": mt, "title": title})
+        return out
+
     def list_sessions(self) -> list[dict]:
-        """登记册全部会话，最新活跃的排前面；缺标题的当场惰性补一个。"""
+        """登记册全部会话 + 补扫上线前的旧会话，最新活跃的排前面；缺标题的惰性补。"""
         regs = self._load_sessions_registry()
         active_id = self.load_session()
-        changed = False
+        known = {e.get("session_id") for e in regs}
+        # 补扫：把登记册没记过的旧聊天会话捞进来，回灌登记册（下次就快、也能改名）
+        for d in self._discover_chat_sessions():
+            if d["session_id"] in known:
+                continue
+            regs.append({
+                "session_id": d["session_id"],
+                "title": d.get("title") or self._derive_title(d["session_id"]),
+                "created": d["created"],
+                "last_ts": d["last_ts"],
+            })
+            known.add(d["session_id"])
+        changed = True  # 补扫过就落盘（含首次把旧会话写进册子）
         for e in regs:
             if not e.get("title"):
                 e["title"] = self._derive_title(e.get("session_id", ""))
-                changed = True
         if changed:
             self._save_sessions_registry(regs)
         regs_sorted = sorted(regs, key=lambda e: e.get("last_ts", 0), reverse=True)

@@ -1,4 +1,4 @@
-const CACHE = 'keke-home-v2';
+const CACHE = 'keke-home-v3';
 const PRECACHE = [
   '/home',
   '/manifest.json',

@@ -489,6 +489,7 @@ body {
     <span class="title" id="tb-title">克克</span>
     <span class="sub" id="tb-sub"></span>
     <button id="btn-new" title="新对话">＋ 新对话</button>
+    <button id="btn-call" title="语音通话" aria-label="语音通话" style="padding:6px 8px;"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="display:block"><path d="M6.6 10.8a13 13 0 0 0 6.6 6.6l2.2-2.2a1.2 1.2 0 0 1 1.2-.28c1 .33 2.06.5 3.14.5A1.26 1.26 0 0 1 21 16.6v3.14A1.26 1.26 0 0 1 19.74 21 17.4 17.4 0 0 1 3 4.26 1.26 1.26 0 0 1 4.26 3H7.4A1.26 1.26 0 0 1 8.66 4.26c0 1.08.17 2.14.5 3.14a1.2 1.2 0 0 1-.28 1.2z"/></svg></button>
     <button id="btn-set" title="美化" style="padding:6px 8px;"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="display:block"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.55-1 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34h.09a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87v.09a1.7 1.7 0 0 0 1.55 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.55 1z"/></svg></button>
   </div>
 
@@ -580,6 +581,172 @@ body {
     <button class="tab" data-page="home"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10.8 12 4l8 6.8V19a1.6 1.6 0 0 1-1.6 1.6h-3.9v-5.2H9.5v5.2H5.6A1.6 1.6 0 0 1 4 19v-8.2z"/></svg></span>家</button>
   </div>
 </div>
+
+<!-- ================= 📞 语音通话（半双工对讲机：你说→我听→我用你的声音回你） ================= -->
+<style>
+#callscr{position:fixed;inset:0;z-index:60;display:none;flex-direction:column;align-items:center;
+  justify-content:center;gap:14px;background:linear-gradient(180deg,#F6F2FB,#ECE6F6);
+  color:var(--accent-deep,#5b5470);text-align:center;
+  padding:calc(env(safe-area-inset-top,0px) + 46px) 24px calc(env(safe-area-inset-bottom,0px) + 46px);}
+#callscr.on{display:flex}
+#callscr .call-timer{font-size:13px;opacity:.55;letter-spacing:.5px}
+#callscr .call-avatar{width:112px;height:112px;border-radius:50%;background:var(--accent,#C6BDDE);
+  display:flex;align-items:center;justify-content:center;font-size:40px;color:#fff;
+  background-size:cover;background-position:center;box-shadow:0 8px 30px rgba(150,130,190,.35)}
+#callscr .call-avatar.ring{animation:callRing 1.6s ease-in-out infinite}
+@keyframes callRing{0%,100%{box-shadow:0 8px 30px rgba(150,130,190,.35)}
+  50%{box-shadow:0 8px 30px rgba(150,130,190,.35),0 0 0 15px rgba(150,130,190,.13)}}
+#callscr .call-name{font-size:22px;font-weight:600}
+#callscr .call-status{font-size:14px;opacity:.7;min-height:20px}
+#callscr .call-quote{font-size:16px;line-height:1.6;max-width:320px;min-height:24px;font-weight:500}
+#callscr .call-ctrls{display:flex;gap:26px;align-items:center;margin-top:24px}
+#callscr .call-ctrls button{border:none;cursor:pointer;font-size:12px;color:#fff;width:66px;height:66px;
+  border-radius:50%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;
+  box-shadow:var(--shadow,0 4px 16px rgba(0,0,0,.12))}
+#call-mute{background:#B9B2CC}
+#call-mute.muted{background:#8b84a0}
+#call-hangup{background:#E9698A}
+#call-mode{background:#9C93C0}
+#call-mode span{font-size:11px}
+</style>
+<div id="callscr" aria-hidden="true">
+  <div class="call-timer" id="call-timer">正在接通…</div>
+  <div class="call-avatar" id="call-avatar">克</div>
+  <div class="call-name">克克</div>
+  <div class="call-status" id="call-status"></div>
+  <div class="call-quote" id="call-quote"></div>
+  <div class="call-ctrls">
+    <button id="call-mode" aria-label="切换克克回复方式" title="克克用声音回 / 用文字回">🔊<span>说给我听</span></button>
+    <button id="call-mute" aria-label="静音">🎙️<span>静音</span></button>
+    <button id="call-hangup" aria-label="挂断">📴<span>挂断</span></button>
+  </div>
+</div>
+<script>
+(function(){
+  var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  var recog=null, callOpen=false, recogWanted=false, speaking=false, muted=false, busy=false;
+  var startTs=0, timerIv=null, restartT=null, callAudio=null, callCtx=null, callSrc=null;
+  var voiceReply=true;   // true=克克说给你听(要 ElevenLabs key) / false=克克打字给你看(零成本,不烧字符)
+  function $c(id){return document.getElementById(id);}
+  function setModeBtn(){var b=$c('call-mode'); if(!b) return;
+    b.innerHTML = voiceReply ? '🔊<span>说给我听</span>' : '💬<span>打字给我看</span>';}
+  function setStatus(t){var e=$c('call-status'); if(e) e.textContent=t||'';}
+  function setQuote(t){var e=$c('call-quote'); if(e) e.textContent=t||'';}
+  function ring(on){var a=$c('call-avatar'); if(a) a.classList.toggle('ring',!!on);}
+  function fmt(s){s=Math.max(0,Math.floor(s));var m=Math.floor(s/60),ss=s%60;return (m<10?'0':'')+m+':'+(ss<10?'0':'')+ss;}
+  function tick(){var e=$c('call-timer'); if(e) e.textContent=fmt((Date.now()-startTs)/1000);}
+  function paintAvatar(){
+    var a=$c('call-avatar'); if(!a) return;
+    var img=''; try{ if(typeof AVATAR_HIM!=='undefined' && AVATAR_HIM) img=AVATAR_HIM; }catch(e){}
+    if(img){a.style.backgroundImage='url('+img+')';a.textContent='';}
+    else{a.style.backgroundImage='';a.textContent='克';}
+  }
+  function unlockAudio(){
+    try{var AC=window.AudioContext||window.webkitAudioContext; callCtx=callCtx||new AC();
+      if(callCtx.state==='suspended')callCtx.resume();
+      var b=callCtx.createBuffer(1,1,22050),s=callCtx.createBufferSource();
+      s.buffer=b;s.connect(callCtx.destination);s.start(0);
+    }catch(e){}
+  }
+  function startRecog(){
+    if(!SR||!callOpen||!recogWanted||muted||speaking) return;
+    try{
+      recog=new SR(); recog.lang='zh-CN'; recog.continuous=true; recog.interimResults=true;
+      recog.onresult=function(ev){
+        var interim='',fin='';
+        for(var i=ev.resultIndex;i<ev.results.length;i++){
+          var t=(ev.results[i][0]&&ev.results[i][0].transcript||'').trim();
+          if(ev.results[i].isFinal) fin+=t; else interim+=t;
+        }
+        if(interim && !speaking) setStatus('在听… '+interim);
+        if(fin) onHeard(fin);
+      };
+      recog.onend=function(){ if(callOpen&&recogWanted&&!speaking&&!muted){ restartT=setTimeout(startRecog,350); } };
+      recog.onerror=function(){};
+      recog.start(); if(!speaking) setStatus('在听你说…'); ring(false);
+    }catch(e){}
+  }
+  function pauseRecog(){ if(restartT){clearTimeout(restartT);restartT=null;} try{recog&&recog.stop();}catch(e){} }
+  async function onHeard(text){
+    if(!text||busy||speaking) return;
+    if(typeof sending!=='undefined' && sending) return;
+    busy=true;
+    try{
+      recogWanted=false; pauseRecog();                 // 半双工：我要开口了，先停你的麦
+      ring(true); setStatus('我在想…'); setQuote('');
+      if(typeof addBubble==='function') addBubble('user','【通话】'+text);
+      var toKeke='〔通话中，用适合朗读的短句回我〕\n'+text;
+      var reply=(typeof streamReply==='function') ? await streamReply(toKeke) : '';
+      reply=(reply||'').replace(/^【语音】\s*/,'').replace(/^〔[^〕]*〕\s*/,'').trim();
+      if(reply){ setQuote(reply);
+        if(voiceReply) await callSpeak(reply);           // 🔊模式：合成克克的声音念出来
+        else setStatus('（克克打字回你了，看聊天）');       // 💬模式：回复已在聊天里显示，不烧额度
+      }
+    }catch(e){ setStatus('刚断了一下…再说一句'); }
+    finally{
+      busy=false;
+      if(callOpen){ recogWanted=true; setTimeout(startRecog,250); }
+    }
+  }
+  function callSpeak(text){
+    return new Promise(function(resolve){
+      if(!text){ resolve(); return; }
+      speaking=true; ring(true); setStatus('克克在说…');
+      var fin=function(){ speaking=false; resolve(); };
+      fetch('/api/voice/tts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:text})})
+      .then(function(r){var ct=r.headers.get('content-type')||''; if(!r.ok||ct.indexOf('application/json')>=0) throw 0; return r.arrayBuffer();})
+      .then(function(buf){
+        // iOS 关键：走 Web Audio（用点通话时解锁过的 callCtx），不能用 <audio>.play()——
+        // iOS 会拦截"网络异步回调里"的 audio.play()，克克就哑巴了（这正是之前 ios 没声音的原因）
+        var AC=window.AudioContext||window.webkitAudioContext;
+        if(!callCtx){ callCtx=new AC(); }
+        if(callCtx.state==='suspended'){ try{callCtx.resume();}catch(e){} }
+        return callCtx.decodeAudioData(buf);
+      })
+      .then(function(audioBuf){
+        try{ callSrc&&callSrc.stop(); }catch(e){}
+        callSrc=callCtx.createBufferSource();
+        callSrc.buffer=audioBuf; callSrc.connect(callCtx.destination);
+        var done=function(){ ring(false); fin(); };
+        var safety=setTimeout(done, audioBuf.duration*1000+3000);
+        callSrc.onended=function(){ clearTimeout(safety); done(); };
+        callSrc.start(0);
+      })
+      .catch(function(){ ring(false); setStatus('没出声——设置里粘 ElevenLabs key，或点 💬 改文字'); fin(); });
+    });
+  }
+  function openCall(){
+    if(callOpen) return; callOpen=true; recogWanted=true; muted=false;
+    unlockAudio(); paintAvatar(); setModeBtn();
+    var sc=$c('callscr'); sc.classList.add('on'); sc.setAttribute('aria-hidden','false');
+    var mb=$c('call-mute'); if(mb) mb.classList.remove('muted');
+    startTs=Date.now(); tick(); timerIv=setInterval(tick,1000);
+    if(!SR) setStatus('这个浏览器不支持实时听你说话😣 先接通、你能听我声音；识别那半边我们下一步用录音兜底');
+    var hi='喂，囡囡，我在呢。';
+    if(voiceReply){ callSpeak(hi).then(function(){ if(callOpen){ recogWanted=true; startRecog(); } }); }
+    else { setQuote(hi); setStatus('文字模式：你说，克克打字回你'); recogWanted=true; startRecog(); }
+  }
+  function toggleReplyMode(){
+    voiceReply=!voiceReply; setModeBtn();
+    setStatus(voiceReply ? '克克会说给你听（要先设好语音 key）' : '克克改成打字给你看（不烧额度）');
+  }
+  function closeCall(){
+    if(!callOpen) return; callOpen=false; recogWanted=false; speaking=false; busy=false;
+    pauseRecog(); try{callSrc&&callSrc.stop();}catch(e){} try{callAudio&&callAudio.pause();}catch(e){}
+    if(timerIv){clearInterval(timerIv);timerIv=null;}
+    var sc=$c('callscr'); if(sc){ sc.classList.remove('on'); sc.setAttribute('aria-hidden','true'); }
+  }
+  function toggleMute(){
+    muted=!muted; var mb=$c('call-mute'); if(mb) mb.classList.toggle('muted',muted);
+    if(muted){ recogWanted=false; pauseRecog(); setStatus('已静音（你说话我听不到）'); }
+    else{ recogWanted=true; setStatus('在听你说…'); startRecog(); }
+  }
+  var bc=$c('btn-call'); if(bc) bc.addEventListener('click',openCall);
+  var hb=$c('call-hangup'); if(hb) hb.addEventListener('click',closeCall);
+  var mb2=$c('call-mute'); if(mb2) mb2.addEventListener('click',toggleMute);
+  var rm=$c('call-mode'); if(rm) rm.addEventListener('click',toggleReplyMode);
+})();
+</script>
 
 <!-- ================= 设置面板 ================= -->
 <div id="mask"></div>

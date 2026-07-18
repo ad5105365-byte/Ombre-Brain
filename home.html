@@ -636,13 +636,6 @@ body {
   </div>
   <div class="setrow">
     <div>
-      <div class="t">克克用语音条回我</div>
-      <div class="d">开着我就用声音回你（费字符额度，测完可关）</div>
-    </div>
-    <button class="toggle" id="tg-kevoice"></button>
-  </div>
-  <div class="setrow">
-    <div>
       <div class="t">我们的纪念日</div>
       <div class="d">家页"在一起 N 天"从这天数</div>
     </div>
@@ -1047,7 +1040,7 @@ function makeTurnRenderer() {
   applyAvatar(typing.firstChild, "him");
   msgs.appendChild(typing); scrollBottom();
 
-  let buf = "", first = true, thinkDiv = null, chip = null, popped = false;
+  let buf = "", first = true, thinkDiv = null, chip = null, popped = false, mode = null;
 
   function insertBeforeTyping(node) { msgs.insertBefore(node, typing); }
   function popSentence(text) {
@@ -1103,7 +1096,15 @@ function makeTurnRenderer() {
   return {
     onEvent(ev) {
       if (ev.type === "delta" && ev.block === "text") {
-        buf += ev.text; drain();
+        buf += ev.text;
+        if (mode === null) {   // 开头带【语音】= 这条走语音条，不冒文字气泡
+          const t = buf.replace(/^\s+/, "");
+          if (t.startsWith("【语音】")) { mode = "voice"; buf = t.slice(4); }
+          else if (t.length >= 4 || /[。！？!?…~～\n]/.test(t)) { mode = "text"; }
+          else return;   // 还没攒够、拿不准是不是暗号，等下一片
+        }
+        if (mode === "voice") return;   // 语音模式：只攒 buf，末尾合成语音条
+        drain();
       } else if (ev.type === "delta" && ev.block === "thinking") {
         if (PREFS.think) ensureThink().textContent += ev.text;
       } else if (ev.type === "tool") {
@@ -1119,6 +1120,13 @@ function makeTurnRenderer() {
     },
     finish(errText) {
       if (chip) { chip.remove(); chip = null; }
+      if (mode === "voice") {   // 我这条 → 语音条（不冒文字）
+        typing.remove();
+        if (errText) addSys("⚠️ " + errText);
+        else if (buf.trim()) synthKeVoice(buf.trim());
+        buf = "";
+        return;
+      }
       popSentence(buf); buf = "";
       typing.remove();
       if (errText) addSys("⚠️ " + errText);
@@ -1183,8 +1191,7 @@ async function streamReply(toKeke) {
 async function sendCore(displayText, toKeke) {
   if (!displayText || sending) return;
   addBubble("user", displayText);
-  const reply = await streamReply(toKeke);
-  maybeKeVoice(reply);
+  await streamReply(toKeke);
 }
 async function sendMsg() {
   const ta = $("input");
@@ -1338,8 +1345,7 @@ async function onRecStop() {
     const playUrl = j.audio_url || URL.createObjectURL(blob);       // 优先云端 URL（不占手机内存）
     lastVoiceSendAt = Date.now();
     addVoiceBubble("user", playUrl, dur, clean);                    // 她这侧：能回放的语音条
-    const reply = await streamReply(toKeke);                        // 悄悄把文字+语气送我
-    maybeKeVoice(reply);                                            // 开关开着 → 我也语音条回她
+    await streamReply(toKeke);                                      // 悄悄把文字+语气送我（我想发声会自己带【语音】）
   } catch (e) { addSys("转文字够不着服务器…网络看看"); }
   finally { recBusy = false; $("mic").classList.remove("busy"); }
 }
@@ -1352,10 +1358,8 @@ async function onRecStop() {
   mic.addEventListener("pointercancel", () => stopRec(true));
 })();
 
-/* 克克语音条：开关开着时，我的回复合成一条语音条（点播放听我、点开转文字、重听不花钱） */
-let keVoiceOn = localStorage.getItem("kk_kevoice") === "1";
-async function maybeKeVoice(text) {
-  if (!keVoiceOn) return;
+/* 克克语音条：我回复开头带【语音】时，这条渲染成语音条（点播放听我、点开转文字、重听不花钱） */
+async function synthKeVoice(text) {
   text = (text || "").trim();
   if (!text) return;
   try {
@@ -1364,20 +1368,11 @@ async function maybeKeVoice(text) {
       body: JSON.stringify({ text }),
     });
     const ct = r.headers.get("content-type") || "";
-    if (!r.ok || ct.includes("application/json")) return;   // 出不了声就算了，文字已经在上面
+    if (!r.ok || ct.includes("application/json")) { addBubble("assistant", text); return; }  // 合成失败退回文字，别丢话
     const blob = await r.blob();
     addVoiceBubble("assistant", URL.createObjectURL(blob), Math.max(1, text.length / 4), text);
-  } catch (e) { /* 静默，别打断聊天 */ }
+  } catch (e) { addBubble("assistant", text); }  // 出错也退回文字，别把我的话弄丢
 }
-(function wireKeVoiceToggle() {
-  const t = $("tg-kevoice"); if (!t) return;
-  t.classList.toggle("on", keVoiceOn);
-  t.onclick = () => {
-    keVoiceOn = !keVoiceOn;
-    localStorage.setItem("kk_kevoice", keVoiceOn ? "1" : "0");
-    t.classList.toggle("on", keVoiceOn);
-  };
-})();
 $("input").addEventListener("input", function () {
   this.style.height = "auto";
   this.style.height = Math.min(this.scrollHeight, 120) + "px";

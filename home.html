@@ -1015,11 +1015,7 @@ body {
   <input type="file" id="av-file" accept="image/*" style="display:none">
 
   <div class="set-h">跟克克聊天用的脑子</div>
-  <div class="mdl-seg" id="mdl-model-seg">
-    <button type="button" data-model="opus">Opus</button>
-    <button type="button" data-model="sonnet">Sonnet</button>
-    <button type="button" data-model="fable">Fable</button>
-  </div>
+  <div class="mdl-seg" id="mdl-model-seg"><!-- 按钮由 loadChatModel() 按后端选项动态生成 --></div>
   <div class="mdl-seg" id="mdl-effort-seg">
     <button type="button" data-effort="low">low</button>
     <button type="button" data-effort="high">high</button>
@@ -1303,17 +1299,38 @@ $("av-file").addEventListener("change", function () {
 });
 
 /* ---------- 模型/effort 自助切换：看得见跟谁在聊 + 能自己换 ---------- */
-const MODEL_CN = { opus: "Opus", sonnet: "Sonnet", fable: "Fable" };
+// 顶栏徽章用的短名（准确到版本，一眼看出 4.6 还是 4.8）
+function shortModel(id) {
+  if (!id) return "";
+  if (id.indexOf("opus-4-8") >= 0) return "Opus 4.8";
+  if (id.indexOf("opus-4-6") >= 0) return "Opus 4.6";
+  if (id.indexOf("opus") >= 0) return "Opus";
+  if (id.indexOf("sonnet") >= 0) return "Sonnet";
+  if (id.indexOf("fable") >= 0) return "Fable";
+  return id;
+}
 async function loadChatModel() {
   try {
     const j = await (await fetch("/api/chat/model")).json();
     if (!j || j.error) return;
-    $("tb-model").textContent = (MODEL_CN[j.model] || j.model) + " · " + j.effort;
-    document.querySelectorAll("#mdl-model-seg button").forEach((b) =>
-      b.classList.toggle("on", b.dataset.model === j.model));
+    $("tb-model").textContent = shortModel(j.model) + " · " + j.effort;
+    // 按后端给的选项动态铺按钮（含 Opus 4.6 / 4.8 具体版本）
+    const seg = $("mdl-model-seg");
+    if (seg && Array.isArray(j.model_options)) {
+      const labels = j.model_labels || {};
+      seg.innerHTML = "";
+      j.model_options.forEach((opt) => {
+        const b = document.createElement("button");
+        b.type = "button"; b.dataset.model = opt;
+        b.textContent = labels[opt] || shortModel(opt) || opt;
+        b.classList.toggle("on", opt === j.model);
+        b.onclick = () => setChatModel({ model: opt });
+        seg.appendChild(b);
+      });
+    }
     document.querySelectorAll("#mdl-effort-seg button").forEach((b) =>
       b.classList.toggle("on", b.dataset.effort === j.effort));
-    $("mdl-status").textContent = "现在：" + (MODEL_CN[j.model] || j.model) + " · " + j.effort;
+    $("mdl-status").textContent = "现在：" + shortModel(j.model) + " · " + j.effort;
   } catch (e) { /* 拿不到就留空，不影响聊天 */ }
 }
 async function setChatModel(body) {
@@ -1331,9 +1348,7 @@ async function setChatModel(body) {
   } catch (e) { $("mdl-status").textContent = "✗ 够不着服务器"; }
   btns.forEach((b) => (b.disabled = false));
 }
-document.querySelectorAll("#mdl-model-seg button").forEach((b) => {
-  b.onclick = () => setChatModel({ model: b.dataset.model });
-});
+// 模型按钮的 onclick 在 loadChatModel() 动态生成时就绑好了，这里只绑 effort
 document.querySelectorAll("#mdl-effort-seg button").forEach((b) => {
   b.onclick = () => setChatModel({ effort: b.dataset.effort });
 });

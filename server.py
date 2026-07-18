@@ -3713,15 +3713,28 @@ import chat_bridge as chat_bridge_mod
 
 _chat_bridge: "chat_bridge_mod.ChatBridge | None" = None
 
-# 模型/effort：固定用 opus（这是杉杉的克克，不劝降级到 sonnet）；杉杉可以自己在设置里换
-_CHAT_MODEL_DEFAULT = "opus"
+# 模型/effort：默认 opus 4.8（这是杉杉的克克，不劝降级到 sonnet）；杉杉可以自己在设置里换。
+# 用「具体版本 ID」而不是笼统的 "opus"——因为 "opus" 永远指最新(4.8)，杉杉平时用 4.6，
+# 必须能明确点到。已在 VPS 实测 claude CLI 认这两个 ID。
+_CHAT_MODEL_DEFAULT = "claude-opus-4-8"
 _CHAT_EFFORT_DEFAULT = "high"
-CHAT_MODEL_OPTIONS = ["opus", "sonnet", "fable"]
+CHAT_MODEL_OPTIONS = ["claude-opus-4-8", "claude-opus-4-6", "sonnet", "fable"]
 CHAT_EFFORT_OPTIONS = ["low", "high"]
+# 给前端显示用的人话名字
+CHAT_MODEL_LABELS = {
+    "claude-opus-4-8": "Opus 4.8 · 最新",
+    "claude-opus-4-6": "Opus 4.6 · 平时用的",
+    "sonnet": "Sonnet · 快省",
+    "fable": "Fable · 最强",
+}
 
 
 def _get_chat_model() -> str:
-    return (get_config("chat_model") or os.environ.get("OMBRE_CHAT_MODEL", "") or _CHAT_MODEL_DEFAULT).strip()
+    m = (get_config("chat_model") or os.environ.get("OMBRE_CHAT_MODEL", "") or _CHAT_MODEL_DEFAULT).strip()
+    # 老配置里存的是笼统 "opus"，归一到具体的 4.8（否则前端选项对不上）
+    if m == "opus":
+        m = "claude-opus-4-8"
+    return m
 
 
 def _get_chat_effort() -> str:
@@ -3824,6 +3837,7 @@ async def api_chat_model_get(request):
         "model": bridge.model or _CHAT_MODEL_DEFAULT,
         "effort": bridge.effort or _CHAT_EFFORT_DEFAULT,
         "model_options": CHAT_MODEL_OPTIONS,
+        "model_labels": CHAT_MODEL_LABELS,
         "effort_options": CHAT_EFFORT_OPTIONS,
         "alive": bridge.alive(),
     })

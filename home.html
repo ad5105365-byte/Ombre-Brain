@@ -1277,8 +1277,10 @@ function addVoiceBubble(role, url, dur, transcript) {
   const av = document.createElement("div"); av.className = "avatar"; applyAvatar(av, role);
   const b = document.createElement("div"); b.className = "bubble voice-bubble";
   const bars = Array.from({ length: 14 }, () => '<i style="height:' + (5 + Math.floor(Math.random() * 11)) + 'px"></i>').join("");
+  const hasTx = !!(transcript && transcript.trim());
   b.innerHTML = '<div class="vrow"><button class="vplay" aria-label="播放">' + PLAY_SVG +
-    '</button><span class="vbars">' + bars + '</span><span class="vdur">' + fmtDur(dur) + "</span></div>";
+    '</button><span class="vbars">' + bars + '</span><span class="vdur">' + fmtDur(dur) + '</span></div>' +
+    (hasTx ? '<div class="vmore" style="font-size:11px;opacity:.5;margin-top:5px;cursor:pointer">转文字</div>' : '');
   const tx = document.createElement("div"); tx.className = "vtext"; tx.hidden = true; tx.textContent = transcript || "";
   b.appendChild(tx);
   const audio = new Audio(url);
@@ -1294,7 +1296,12 @@ function addVoiceBubble(role, url, dur, transcript) {
     else { audio.pause(); playBtn.innerHTML = PLAY_SVG; }
   });
   audio.onended = () => { playBtn.innerHTML = PLAY_SVG; };
-  b.addEventListener("click", (e) => { if (e.target.closest(".vplay")) return; tx.hidden = !tx.hidden; });
+  b.addEventListener("click", (e) => {
+    if (e.target.closest(".vplay")) return;
+    if (!hasTx) return;
+    tx.hidden = !tx.hidden;
+    const more = b.querySelector(".vmore"); if (more) more.textContent = tx.hidden ? "转文字" : "收起";
+  });
   if (role === "user") { wrap.appendChild(b); wrap.appendChild(av); }
   else { wrap.appendChild(av); wrap.appendChild(b); }
   msgs.appendChild(wrap); scrollBottom();

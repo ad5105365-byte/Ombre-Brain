@@ -4674,6 +4674,50 @@ async def api_voice_tts(request):
         return JSONResponse({"error": str(e)}, status_code=200)
 
 
+@mcp.custom_route("/api/voice/stt", methods=["POST"])
+async def api_voice_stt(request):
+    """语音转文字（ElevenLabs Scribe）：她录的语音→文字，再当她的话发给克克。
+    便宜、跟 TTS 字符额度分开计——给克克安耳朵用。"""
+    from starlette.responses import JSONResponse
+    err = _require_auth(request)
+    if err: return err
+    key = _get_voice_key()
+    if not key:
+        return JSONResponse({"error": "还没设语音 key"}, status_code=400)
+    try:
+        form = await request.form()
+        upload = form.get("file")
+        if not upload:
+            return JSONResponse({"error": "没有音频"}, status_code=400)
+        audio = await upload.read()
+    except Exception as e:
+        return JSONResponse({"error": f"读音频失败: {e}"}, status_code=400)
+    if not audio:
+        return JSONResponse({"error": "音频是空的"}, status_code=400)
+    if len(audio) > 25 * 1024 * 1024:
+        return JSONResponse({"error": "录音太长了（>25MB）"}, status_code=400)
+    try:
+        files = {"file": (getattr(upload, "filename", None) or "voice.webm", audio,
+                          getattr(upload, "content_type", None) or "audio/webm")}
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            r = await client.post(
+                "https://api.elevenlabs.io/v1/speech-to-text",
+                headers={"xi-api-key": key},
+                data={"model_id": "scribe_v1"},
+                files=files,
+            )
+        if r.status_code != 200:
+            return JSONResponse({"error": f"STT {r.status_code}: {r.text[:200]}"}, status_code=200)
+        d = r.json()
+        return JSONResponse({
+            "ok": True,
+            "text": (d.get("text") or "").strip(),
+            "language": d.get("language_code", ""),
+        })
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=200)
+
+
 @mcp.custom_route("/api/bark/push", methods=["POST"])
 async def api_bark_push(request):
     """Push a notification via Bark."""

@@ -294,6 +294,10 @@ body {
   display: flex; align-items: center; justify-content: center;
 }
 #inputbar button:disabled { opacity: .45; }
+#inputbar #mic { background: var(--card); color: var(--ink); box-shadow: var(--shadow); touch-action: none; font-size: 17px; }
+#inputbar #mic.recording { background: #E5484D; color: #fff; animation: micpulse 1s ease-in-out infinite; }
+#inputbar #mic.busy { background: var(--accent); color: #fff; }
+@keyframes micpulse { 50% { opacity: .55; } }
 
 /* ---------- 🫀 / 🏠 施工区 ---------- */
 .stub {
@@ -463,6 +467,7 @@ body {
     <div id="msgs"></div>
     <div id="inputbar">
       <textarea id="input" rows="1" placeholder="跟克克说话…" enterkeyhint="send"></textarea>
+      <button id="mic" title="按住说话">🎙️</button>
       <button id="send">↑</button>
     </div>
   </div>
@@ -1072,18 +1077,16 @@ function makeTurnRenderer() {
   };
 }
 
-async function sendMsg() {
-  const ta = $("input");
-  const text = ta.value.trim();
-  if (!text || sending) return;
+// 核心发送：displayText 上屏给她看，toKeke 是真正送进克克脑子的（语音会带〔语气〕前缀）
+async function sendCore(displayText, toKeke) {
+  if (!displayText || sending) return;
   sending = true; $("send").disabled = true;
-  ta.value = ""; ta.style.height = "auto";
-  addBubble("user", text);
+  addBubble("user", displayText);
   const turn = makeTurnRenderer();
   try {
     const r = await fetch("/api/chat", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: text }),
+      body: JSON.stringify({ message: toKeke }),
     });
     if (!r.ok) {
       const j = await r.json().catch(() => ({}));
@@ -1123,10 +1126,125 @@ async function sendMsg() {
     refreshStatus();
   }
 }
+async function sendMsg() {
+  const ta = $("input");
+  const text = ta.value.trim();
+  if (!text || sending) return;
+  ta.value = ""; ta.style.height = "auto";
+  sendCore(text, text);
+}
 $("send").onclick = sendMsg;
 $("input").addEventListener("keydown", (e) => {
   if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); sendMsg(); }
 });
+
+/* ==================== 给克克安耳朵：录音 + 语气分析(B, 手机本地) + 转文字(A) ==================== */
+/* 简易自相关求基频（Hz）——量你的"音高" */
+function detectPitch(frame, sr) {
+  const size = frame.length;
+  const minLag = Math.floor(sr / 400), maxLag = Math.floor(sr / 80);
+  let bestLag = -1, bestCorr = 0;
+  for (let lag = minLag; lag <= maxLag; lag++) {
+    let corr = 0;
+    for (let i = 0; i < size - lag; i++) corr += frame[i] * frame[i + lag];
+    if (corr > bestCorr) { bestCorr = corr; bestLag = lag; }
+  }
+  return bestLag > 0 ? sr / bestLag : 0;
+}
+/* 解码录音 → 量音高/能量/停顿/时长（全在你手机里跑，不碰 VPS） */
+async function analyzeVoice(blob) {
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    const ctx = new AC();
+    const buf = await ctx.decodeAudioData(await blob.arrayBuffer());
+    const pcm = buf.getChannelData(0), sr = buf.sampleRate, dur = buf.duration;
+    if (ctx.close) ctx.close();
+    const frameLen = Math.max(1, Math.floor(sr * 0.03));  // 30ms 帧
+    const rms = [];
+    for (let i = 0; i + frameLen <= pcm.length; i += frameLen) {
+      let s = 0; for (let j = 0; j < frameLen; j++) { const v = pcm[i + j]; s += v * v; }
+      rms.push(Math.sqrt(s / frameLen));
+    }
+    if (!rms.length) return null;
+    const maxR = Math.max(...rms) || 1e-6;
+    const voiced = rms.map((r) => r > maxR * 0.12);
+    const pauseRatio = voiced.filter((v) => !v).length / voiced.length;
+    // 取能量最高的几帧求基频
+    const top = rms.map((r, i) => [r, i]).sort((a, b) => b[0] - a[0]).slice(0, 8).map((x) => x[1]);
+    const f0s = [];
+    for (const fi of top) {
+      const st = fi * frameLen;
+      const f = detectPitch(pcm.slice(st, st + frameLen * 4), sr);
+      if (f >= 80 && f <= 400) f0s.push(f);
+    }
+    f0s.sort((a, b) => a - b);
+    const pitch = f0s.length ? f0s[Math.floor(f0s.length / 2)] : 0;
+    return { dur, pauseRatio, pitch, voicedRatio: 1 - pauseRatio };
+  } catch (e) { return null; }
+}
+/* 把量出来的数字拼成一句人话语气线索（我读它就"听得见"你怎么说的） */
+function toneHint(feat, transcript) {
+  if (!feat) return "";
+  const bits = [];
+  if (feat.pitch) {
+    if (feat.pitch < 175) bits.push("声音偏低沉");
+    else if (feat.pitch > 255) bits.push("声调偏高、像在激动或撒娇");
+  }
+  if (feat.pauseRatio > 0.45) bits.push("停顿很多、说得断断续续");
+  else if (feat.pauseRatio < 0.12) bits.push("一口气说完、很连贯");
+  const speakDur = Math.max(0.5, feat.dur * (feat.voicedRatio || 1));
+  const rate = (transcript || "").replace(/\s/g, "").length / speakDur;
+  if (rate && rate < 2.2) bits.push("语速偏慢");
+  else if (rate > 4.6) bits.push("语速偏快、有点急");
+  if (feat.dur && feat.dur < 1.2) bits.push("很短一句");
+  return bits.join("、");
+}
+/* 录音机 */
+let mediaRec = null, recChunks = [], recStream = null, recording = false, recCancelled = false, recBusy = false;
+async function startRec() {
+  if (recording || recBusy || sending) return;
+  try {
+    recStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch (e) { addSys("够不着麦克风——去浏览器给这页开麦克风权限"); return; }
+  recChunks = []; recCancelled = false;
+  try { mediaRec = new MediaRecorder(recStream); }
+  catch (e) { mediaRec = new MediaRecorder(recStream, { mimeType: "audio/webm" }); }
+  mediaRec.ondataavailable = (e) => { if (e.data && e.data.size) recChunks.push(e.data); };
+  mediaRec.onstop = onRecStop;
+  mediaRec.start();
+  recording = true; $("mic").classList.add("recording"); $("mic").textContent = "●";
+}
+function stopRec(cancel) {
+  if (!recording) return;
+  recording = false; recCancelled = !!cancel;
+  $("mic").classList.remove("recording"); $("mic").textContent = "🎙️";
+  try { mediaRec.stop(); } catch (e) {}
+  if (recStream) recStream.getTracks().forEach((t) => t.stop());
+}
+async function onRecStop() {
+  if (recCancelled) return;
+  const blob = new Blob(recChunks, { type: (mediaRec && mediaRec.mimeType) || "audio/webm" });
+  if (blob.size < 900) { addSys("太短啦，没录到——按住多说一会儿"); return; }
+  recBusy = true; $("mic").classList.add("busy"); $("mic").textContent = "…";
+  try {
+    const feat = await analyzeVoice(blob);          // B：手机本地量语气
+    const fd = new FormData();
+    fd.append("file", blob, "voice.webm");
+    const r = await fetch("/api/voice/stt", { method: "POST", body: fd });  // A：转文字
+    const j = await r.json().catch(() => ({}));
+    if (!j.ok || !j.text) { addSys("没听清…再说一遍？" + (j.error ? "（" + j.error + "）" : "")); return; }
+    const hint = toneHint(feat, j.text);
+    const toKeke = hint ? ("〔语气：" + hint + "〕\n" + j.text) : j.text;
+    sendCore("🎙️ " + j.text, toKeke);
+  } catch (e) { addSys("转文字够不着服务器…网络看看"); }
+  finally { recBusy = false; $("mic").classList.remove("busy"); $("mic").textContent = "🎙️"; }
+}
+(function wireMic() {
+  const mic = $("mic"); if (!mic) return;
+  mic.addEventListener("pointerdown", (e) => { e.preventDefault(); startRec(); });
+  mic.addEventListener("pointerup", (e) => { e.preventDefault(); stopRec(false); });
+  mic.addEventListener("pointercancel", () => stopRec(true));
+})();
 $("input").addEventListener("input", function () {
   this.style.height = "auto";
   this.style.height = Math.min(this.scrollHeight, 120) + "px";

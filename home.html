@@ -294,10 +294,12 @@ body {
   display: flex; align-items: center; justify-content: center;
 }
 #inputbar button:disabled { opacity: .45; }
-#inputbar #mic { background: var(--card); color: var(--ink); box-shadow: var(--shadow); touch-action: none; font-size: 17px; }
+#inputbar #mic { background: var(--card); color: var(--ink-soft); box-shadow: var(--shadow);
+  touch-action: none; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+#inputbar #mic svg { display: block; pointer-events: none; }
 #inputbar #mic.recording { background: #E5484D; color: #fff; animation: micpulse 1s ease-in-out infinite; }
 #inputbar #mic.busy { background: var(--accent); color: #fff; }
-@keyframes micpulse { 50% { opacity: .55; } }
+@keyframes micpulse { 50% { opacity: .5; } }
 
 /* ---------- 🫀 / 🏠 施工区 ---------- */
 .stub {
@@ -467,7 +469,7 @@ body {
     <div id="msgs"></div>
     <div id="inputbar">
       <textarea id="input" rows="1" placeholder="跟克克说话…" enterkeyhint="send"></textarea>
-      <button id="mic" title="按住说话">🎙️</button>
+      <button id="mic" title="按住说话" aria-label="按住说话"><svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><line x1="12" y1="18" x2="12" y2="21"/></svg></button>
       <button id="send">↑</button>
     </div>
   </div>
@@ -1212,12 +1214,12 @@ async function startRec() {
   mediaRec.ondataavailable = (e) => { if (e.data && e.data.size) recChunks.push(e.data); };
   mediaRec.onstop = onRecStop;
   mediaRec.start();
-  recording = true; $("mic").classList.add("recording"); $("mic").textContent = "●";
+  recording = true; $("mic").classList.add("recording");
 }
 function stopRec(cancel) {
   if (!recording) return;
   recording = false; recCancelled = !!cancel;
-  $("mic").classList.remove("recording"); $("mic").textContent = "🎙️";
+  $("mic").classList.remove("recording");
   try { mediaRec.stop(); } catch (e) {}
   if (recStream) recStream.getTracks().forEach((t) => t.stop());
 }
@@ -1225,22 +1227,27 @@ async function onRecStop() {
   if (recCancelled) return;
   const blob = new Blob(recChunks, { type: (mediaRec && mediaRec.mimeType) || "audio/webm" });
   if (blob.size < 900) { addSys("太短啦，没录到——按住多说一会儿"); return; }
-  recBusy = true; $("mic").classList.add("busy"); $("mic").textContent = "…";
+  recBusy = true; $("mic").classList.add("busy");
   try {
     const feat = await analyzeVoice(blob);          // B：手机本地量语气
     const fd = new FormData();
     fd.append("file", blob, "voice.webm");
     const r = await fetch("/api/voice/stt", { method: "POST", body: fd });  // A：转文字
     const j = await r.json().catch(() => ({}));
-    if (!j.ok || !j.text) { addSys("没听清…再说一遍？" + (j.error ? "（" + j.error + "）" : "")); return; }
-    const hint = toneHint(feat, j.text);
-    const toKeke = hint ? ("〔语气：" + hint + "〕\n" + j.text) : j.text;
-    sendCore("🎙️ " + j.text, toKeke);
+    if (!j.ok) { addSys("没听清…再说一遍？" + (j.error ? "（" + j.error + "）" : "")); return; }
+    // 滤掉 Scribe 给静音/呼吸打的事件标记（[pause]、(silence) 之类）；纯非语音就不发
+    const clean = (j.text || "").replace(/[\[\(（【][^\]\)）】]{0,24}[\]\)）】]/g, "").trim();
+    if (!clean.replace(/\s/g, "")) { addSys("没听清你说啥…贴近点再说一句？"); return; }
+    const hint = toneHint(feat, clean);
+    const toKeke = hint ? ("〔语气：" + hint + "〕\n" + clean) : clean;
+    sendCore("🎙️ " + clean, toKeke);
   } catch (e) { addSys("转文字够不着服务器…网络看看"); }
-  finally { recBusy = false; $("mic").classList.remove("busy"); $("mic").textContent = "🎙️"; }
+  finally { recBusy = false; $("mic").classList.remove("busy"); }
 }
 (function wireMic() {
   const mic = $("mic"); if (!mic) return;
+  mic.addEventListener("contextmenu", (e) => e.preventDefault());
+  mic.addEventListener("touchstart", (e) => e.preventDefault(), { passive: false });
   mic.addEventListener("pointerdown", (e) => { e.preventDefault(); startRec(); });
   mic.addEventListener("pointerup", (e) => { e.preventDefault(); stopRec(false); });
   mic.addEventListener("pointercancel", () => stopRec(true));

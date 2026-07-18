@@ -608,6 +608,10 @@ body {
 #call-hangup{background:#E9698A}
 #call-mode{background:#9C93C0}
 #call-mode span{font-size:11px}
+#call-ptt{margin-top:18px;border:none;border-radius:22px;padding:11px 24px;font-size:14px;
+  background:#7d74a3;color:#fff;cursor:pointer;user-select:none;-webkit-user-select:none;
+  touch-action:none;box-shadow:0 4px 16px rgba(0,0,0,.12)}
+#call-ptt.rec{background:#E9698A;transform:scale(1.04)}
 </style>
 <div id="callscr" aria-hidden="true">
   <div class="call-timer" id="call-timer">正在接通…</div>
@@ -620,6 +624,7 @@ body {
     <button id="call-mute" aria-label="静音">🎙️<span>静音</span></button>
     <button id="call-hangup" aria-label="挂断">📴<span>挂断</span></button>
   </div>
+  <button id="call-ptt" type="button">🎤 长按说话</button>
 </div>
 <script>
 (function(){
@@ -740,6 +745,50 @@ body {
     muted=!muted; var mb=$c('call-mute'); if(mb) mb.classList.toggle('muted',muted);
     if(muted){ recogWanted=false; pauseRecog(); setStatus('已静音（你说话我听不到）'); }
     else{ recogWanted=true; setStatus('在听你说…'); startRecog(); }
+  }
+  // —— 长按说话兜底：iOS 实时识别抽风时用它，录一句 → ElevenLabs Scribe 转文字 → 走同一条路喂克克 ——
+  var mediaRec=null, mediaChunks=[], mediaStream=null, recording=false;
+  async function pttStart(){
+    if(!callOpen||recording||speaking||busy) return;
+    try{
+      recogWanted=false; pauseRecog();     // 录音先停实时识别，别抢麦
+      if(!mediaStream) mediaStream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true}});
+      mediaChunks=[];
+      var mime = (window.MediaRecorder&&MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) ? 'audio/webm;codecs=opus'
+               : (window.MediaRecorder&&MediaRecorder.isTypeSupported('audio/mp4') ? 'audio/mp4' : '');
+      mediaRec = mime ? new MediaRecorder(mediaStream,{mimeType:mime}) : new MediaRecorder(mediaStream);
+      mediaRec.ondataavailable=function(e){ if(e.data&&e.data.size>0) mediaChunks.push(e.data); };
+      mediaRec.onstop=pttFlush;
+      mediaRec.start(); recording=true;
+      var b=$c('call-ptt'); if(b){b.classList.add('rec'); b.textContent='🔴 松手发送';}
+      setStatus('在录…松手我就听');
+    }catch(e){ setStatus('麦克风没打开：'+((e&&e.name)||e)); }
+  }
+  function pttStop(){
+    if(!recording) return; recording=false;
+    var b=$c('call-ptt'); if(b){b.classList.remove('rec'); b.textContent='🎤 长按说话';}
+    try{ mediaRec&&mediaRec.state!=='inactive'&&mediaRec.stop(); }catch(e){}
+  }
+  async function pttFlush(){
+    var resume=function(){ if(callOpen&&!muted){ recogWanted=true; startRecog(); } };
+    try{
+      var blob=new Blob(mediaChunks,{type:(mediaRec&&mediaRec.mimeType)||'audio/webm'});
+      if(!blob.size){ resume(); return; }
+      setStatus('转文字中…');
+      var fd=new FormData(); fd.append('file', blob, 'voice.webm');
+      var r=await fetch('/api/voice/stt',{method:'POST',body:fd});
+      var j=await r.json().catch(function(){return {};});
+      var text=(j&&j.text||'').trim();
+      if(text){ onHeard(text); }            // onHeard 内部自己会 resume
+      else { setStatus('没听清，再长按说一次'); resume(); }
+    }catch(e){ setStatus('转文字失败，再长按试一次'); resume(); }
+  }
+  var ptt=$c('call-ptt');
+  if(ptt){
+    ptt.addEventListener('pointerdown',function(e){ e.preventDefault(); pttStart(); });
+    ptt.addEventListener('pointerup',function(e){ e.preventDefault(); pttStop(); });
+    ptt.addEventListener('pointercancel',function(){ pttStop(); });
+    ptt.addEventListener('pointerleave',function(){ if(recording) pttStop(); });
   }
   var bc=$c('btn-call'); if(bc) bc.addEventListener('click',openCall);
   var hb=$c('call-hangup'); if(hb) hb.addEventListener('click',closeCall);

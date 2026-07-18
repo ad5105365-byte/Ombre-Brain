@@ -955,18 +955,6 @@ function loadAvatars() {
   refreshAvatars();
   renderAvSlots();
 }
-/* 克克每句旁边挂个 🔊，点了才合成播放（省额度） */
-function makeTtsBtn() {
-  const btn = document.createElement("button");
-  btn.type = "button"; btn.className = "tts-btn"; btn.title = "听克克说这句"; btn.textContent = "🔊";
-  return btn;
-}
-msgs.addEventListener("click", (e) => {
-  const btn = e.target.closest(".tts-btn");
-  if (!btn) return;
-  const bubble = btn.parentElement.querySelector(".bubble");
-  if (bubble) playTTS(bubble.textContent, btn);
-});
 function addBubble(role, text, cont) {
   const wrap = document.createElement("div");
   wrap.className = "msg " + (role === "user" ? "her" : "him") + (cont ? " cont" : "");
@@ -977,7 +965,7 @@ function addBubble(role, text, cont) {
   b.className = "bubble";
   if (text) b.textContent = text;
   if (role === "user") { wrap.appendChild(b); wrap.appendChild(av); }
-  else { wrap.appendChild(av); wrap.appendChild(b); wrap.appendChild(makeTtsBtn()); }
+  else { wrap.appendChild(av); wrap.appendChild(b); }
   msgs.appendChild(wrap); scrollBottom();
   return b;
 }
@@ -1015,7 +1003,7 @@ function makeTurnRenderer() {
     av.className = "avatar"; applyAvatar(av, "him");
     const b = document.createElement("div");
     b.className = "bubble"; b.textContent = text.trim();
-    wrap.appendChild(av); wrap.appendChild(b); wrap.appendChild(makeTtsBtn());
+    wrap.appendChild(av); wrap.appendChild(b);
     insertBeforeTyping(wrap); scrollBottom();
     first = false; popped = true;
   }

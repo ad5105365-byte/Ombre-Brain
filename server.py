@@ -187,9 +187,60 @@ mcp = FastMCP(
 #
 # Env var OMBRE_DASHBOARD_PASSWORD overrides file-stored password.
 # First visit with no password set → forced setup wizard.
-# Sessions stored in memory (lost on restart, 7-day expiry).
+# Sessions：签名 token（无状态，重启不丢）+ 内存表兜旧 token。
+# 之前 token 只存内存 → 每次 systemctl restart 都把登录态冲掉，杉杉得反复输密码。
+# 现在改成 HMAC 签名 token（token 自带过期时间 + 签名，验签即可，不依赖内存），
+# 服务随便重启都不掉线。旧的内存 token 仍兼容校验，平滑过渡。
 # =============================================================
-_sessions: dict[str, float] = {}  # {token: expiry_timestamp}
+_sessions: dict[str, float] = {}  # {token: expiry_timestamp}（旧格式，兼容用）
+_SESSION_TTL = 86400 * 180  # 180 天，省得她老重登
+
+
+def _session_secret() -> str:
+    """持久化的签名密钥：没有就生成一次存盘（跟密码文件同目录，chmod 600）。"""
+    path = os.path.join(config["buckets_dir"], ".session_secret")
+    try:
+        if os.path.exists(path):
+            with open(path, "r", encoding="utf-8") as f:
+                s = f.read().strip()
+                if s:
+                    return s
+    except Exception:
+        pass
+    s = secrets.token_hex(32)
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(s)
+        os.chmod(path, 0o600)
+    except Exception:
+        pass
+    return s
+
+
+def _sign_session(expiry: int) -> str:
+    sig = hmac.new(_session_secret().encode(), str(expiry).encode(),
+                   hashlib.sha256).hexdigest()
+    return f"v1.{expiry}.{sig}"
+
+
+def _verify_signed_session(token: str) -> bool:
+    """验签名 token：格式对 + 签名对 + 没过期。"""
+    try:
+        ver, exp_s, sig = token.split(".", 2)
+    except ValueError:
+        return False
+    if ver != "v1":
+        return False
+    try:
+        expiry = int(exp_s)
+    except ValueError:
+        return False
+    good = hmac.new(_session_secret().encode(), exp_s.encode(),
+                    hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(sig, good):
+        return False
+    return time.time() <= expiry
 
 
 def _get_auth_file() -> str:
@@ -244,15 +295,18 @@ def _verify_any_password(password: str) -> bool:
 
 
 def _create_session() -> str:
-    token = secrets.token_urlsafe(32)
-    _sessions[token] = time.time() + 86400 * 7  # 7-day expiry
-    return token
+    # 签名 token：自带过期时间，重启不丢，不用往内存/文件存。
+    return _sign_session(int(time.time() + _SESSION_TTL))
 
 
 def _is_authenticated(request) -> bool:
     token = request.cookies.get("ombre_session")
     if not token:
         return False
+    # 新的签名 token（无状态，重启不掉线）
+    if _verify_signed_session(token):
+        return True
+    # 兼容旧的内存 token（过渡期，重启后自然失效一次）
     expiry = _sessions.get(token)
     if expiry is None or time.time() > expiry:
         _sessions.pop(token, None)
@@ -327,7 +381,7 @@ async def auth_setup_endpoint(request):
     _save_password_hash(password)
     token = _create_session()
     resp = JSONResponse({"ok": True})
-    resp.set_cookie("ombre_session", token, httponly=True, samesite="lax", max_age=86400 * 7)
+    resp.set_cookie("ombre_session", token, httponly=True, samesite="lax", max_age=_SESSION_TTL)
     return resp
 
 
@@ -343,7 +397,7 @@ async def auth_login(request):
     if _verify_any_password(password):
         token = _create_session()
         resp = JSONResponse({"ok": True})
-        resp.set_cookie("ombre_session", token, httponly=True, samesite="lax", max_age=86400 * 7)
+        resp.set_cookie("ombre_session", token, httponly=True, samesite="lax", max_age=_SESSION_TTL)
         return resp
     return JSONResponse({"error": "密码错误"}, status_code=401)
 
@@ -383,7 +437,7 @@ async def auth_change_password(request):
     _sessions.clear()
     token = _create_session()
     resp = JSONResponse({"ok": True})
-    resp.set_cookie("ombre_session", token, httponly=True, samesite="lax", max_age=86400 * 7)
+    resp.set_cookie("ombre_session", token, httponly=True, samesite="lax", max_age=_SESSION_TTL)
     return resp
 
 

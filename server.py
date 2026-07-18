@@ -3659,11 +3659,29 @@ import chat_bridge as chat_bridge_mod
 
 _chat_bridge: "chat_bridge_mod.ChatBridge | None" = None
 
+# 模型/effort：固定用 opus（这是杉杉的克克，不劝降级到 sonnet）；杉杉可以自己在设置里换
+_CHAT_MODEL_DEFAULT = "opus"
+_CHAT_EFFORT_DEFAULT = "high"
+CHAT_MODEL_OPTIONS = ["opus", "sonnet", "fable"]
+CHAT_EFFORT_OPTIONS = ["low", "high"]
+
+
+def _get_chat_model() -> str:
+    return (get_config("chat_model") or os.environ.get("OMBRE_CHAT_MODEL", "") or _CHAT_MODEL_DEFAULT).strip()
+
+
+def _get_chat_effort() -> str:
+    return (get_config("chat_effort") or os.environ.get("OMBRE_CHAT_EFFORT", "") or _CHAT_EFFORT_DEFAULT).strip()
+
 
 def _get_chat_bridge():
     global _chat_bridge
     if _chat_bridge is None:
-        _chat_bridge = chat_bridge_mod.ChatBridge(state_dir=config["buckets_dir"])
+        _chat_bridge = chat_bridge_mod.ChatBridge(
+            state_dir=config["buckets_dir"],
+            model=_get_chat_model(),
+            effort=_get_chat_effort(),
+        )
     return _chat_bridge
 
 
@@ -3733,6 +3751,64 @@ async def api_chat_reset(request):
         return JSONResponse({"error": "克克正在说话，说完再开新对话"}, status_code=409)
     await bridge.reset()
     return JSONResponse({"ok": True})
+
+
+# --- 模型/effort 自助配置（她自己看得见跟谁在聊、能自己切）---
+@mcp.custom_route("/api/chat/model", methods=["GET"])
+async def api_chat_model_get(request):
+    """当前用的模型/effort + 可选项，给前端顶栏/设置面板显示。"""
+    from starlette.responses import JSONResponse
+    err = _require_auth(request)
+    if err: return err
+    bridge = _get_chat_bridge()
+    return JSONResponse({
+        "model": bridge.model or _CHAT_MODEL_DEFAULT,
+        "effort": bridge.effort or _CHAT_EFFORT_DEFAULT,
+        "model_options": CHAT_MODEL_OPTIONS,
+        "effort_options": CHAT_EFFORT_OPTIONS,
+        "alive": bridge.alive(),
+    })
+
+
+@mcp.custom_route("/api/chat/model", methods=["POST"])
+async def api_chat_model_set(request):
+    """换脑子：存配置 + 掐掉当前常驻进程（不清 session，下一条消息会用 --resume
+    带着新模型/effort 重新醒来，记忆接得上，只是要多等几秒进程重生）。"""
+    from starlette.responses import JSONResponse
+    err = _require_auth(request)
+    if err: return err
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "Invalid JSON"}, status_code=400)
+    model = (body.get("model") or "").strip()
+    effort = (body.get("effort") or "").strip()
+    if model and model not in CHAT_MODEL_OPTIONS:
+        return JSONResponse({"error": f"model 只能是 {CHAT_MODEL_OPTIONS}"}, status_code=400)
+    if effort and effort not in CHAT_EFFORT_OPTIONS:
+        return JSONResponse({"error": f"effort 只能是 {CHAT_EFFORT_OPTIONS}"}, status_code=400)
+    if not model and not effort:
+        return JSONResponse({"error": "model 或 effort 至少给一个"}, status_code=400)
+    bridge = _get_chat_bridge()
+    if bridge.busy():
+        return JSONResponse({"error": "克克正在说话，等他说完再换"}, status_code=409)
+    try:
+        if model:
+            set_config("chat_model", model)
+            bridge.model = model
+        if effort:
+            set_config("chat_effort", effort)
+            bridge.effort = effort
+        # 掐掉常驻进程但留着 session_id：下条消息 --resume 重生，带上新模型/effort
+        await bridge._kill_proc()
+        return JSONResponse({
+            "ok": True,
+            "model": bridge.model,
+            "effort": bridge.effort,
+            "note": "下一条消息生效，进程要重新醒一下（记忆用 --resume 接上，不会丢）",
+        })
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
 
 
 # ============================================================
@@ -4535,6 +4611,86 @@ async def api_bark_config_set(request):
         return JSONResponse({"error": "key 不能为空"}, status_code=400)
     try:
         _save_bark_key(key)
+        return JSONResponse({"ok": True})
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+# ============================================================
+# 第二个大脑接口：中转站 API / Codex / 备用 CC 账号
+#
+# 她不想把 key/账号丢给 AI，所以这里只开一个"她自己在前端填"的口子：
+# 三个槽位(relay/codex/cc2)，字段存进 config 表(cloud_sync)，GET 时 key 打码。
+#
+# TODO(provider-swap，没接线，留给下一个窗口)：
+#   现在这套只做"配置存储 + 前端填写口"，**没有真正切换执行**。真要接：
+#   - relay/codex 槽位：chat_bridge.py 的 _spawn() 现在永远起本机 `claude` CLI
+#     子进程；如果 get_config("provider_active") 不是 "claude"，需要改成走
+#     Tidal_Echo/examples/bridge_any_llm.py 那套「OpenAI 兼容 HTTP 循环」，
+#     不再 spawn claude 子进程，而是直接 POST {endpoint}/chat/completions
+#     （headers 带 Authorization: Bearer {api_key}，body 里 model 用配置的
+#     model 名）。SSE 事件格式要在这层拍平成现有的
+#     init/block/delta/tool/tool_done/done，前端才不用改。
+#   - cc2 槽位（备用 CC pro 账号容灾）：claude CLI 的登录态是机器级的
+#     （~/.claude 或 CLAUDE_CONFIG_DIR），不是一个能当参数传的 key——
+#     真要切换大概率是「换一个 CLAUDE_CONFIG_DIR 指向另一份登录态」，
+#     起子进程时 env 里加 CLAUDE_CONFIG_DIR=<存好的路径>。这里的 note
+#     字段先占位记这个路径/账号说明，接线时再读。
+# ============================================================
+PROVIDER_SLOTS = ["relay", "codex", "cc2"]
+PROVIDER_TEXT_FIELDS = ["label", "endpoint", "model", "note"]  # 非敏感，GET 原样返回
+PROVIDER_SECRET_FIELDS = ["api_key"]  # 敏感，GET 只打码
+
+
+def _provider_cfg_key(slot: str, field: str) -> str:
+    return f"provider_{slot}_{field}"
+
+
+def _mask_secret(v: str) -> str:
+    v = (v or "").strip()
+    if len(v) > 8:
+        return f"{v[:4]}...{v[-4:]}"
+    return "***" if v else ""
+
+
+@mcp.custom_route("/api/providers/config", methods=["GET"])
+async def api_providers_get(request):
+    """三个槽位的当前配置：非敏感字段原样给前端回填，key 打码。"""
+    from starlette.responses import JSONResponse
+    err = _require_auth(request)
+    if err: return err
+    slots = {}
+    for slot in PROVIDER_SLOTS:
+        d = {f: (get_config(_provider_cfg_key(slot, f)) or "") for f in PROVIDER_TEXT_FIELDS}
+        key = get_config(_provider_cfg_key(slot, "api_key")) or ""
+        d["key_masked"] = _mask_secret(key)
+        d["key_set"] = bool(key)
+        d["configured"] = bool(d["endpoint"] or key or d["note"])
+        slots[slot] = d
+    return JSONResponse({
+        "slots": slots,
+        "active": get_config("provider_active") or "claude",
+        "wired": False,  # 如实告诉前端：存了但还没真正接线切换
+    })
+
+
+@mcp.custom_route("/api/providers/config", methods=["POST"])
+async def api_providers_set(request):
+    """存一个槽位的配置。她自己填，key 落库后不会原样吐回前端。"""
+    from starlette.responses import JSONResponse
+    err = _require_auth(request)
+    if err: return err
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "Invalid JSON"}, status_code=400)
+    slot = (body.get("slot") or "").strip()
+    if slot not in PROVIDER_SLOTS:
+        return JSONResponse({"error": f"slot 只能是 {PROVIDER_SLOTS}"}, status_code=400)
+    try:
+        for field in PROVIDER_TEXT_FIELDS + PROVIDER_SECRET_FIELDS:
+            if field in body:
+                set_config(_provider_cfg_key(slot, field), (body.get(field) or "").strip())
         return JSONResponse({"ok": True})
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)

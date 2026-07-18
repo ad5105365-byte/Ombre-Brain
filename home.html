@@ -228,6 +228,15 @@ body {
 .vk-row button:disabled { opacity: .5; }
 .vk-btn-ghost { background: var(--accent-soft) !important; color: var(--ink) !important; }
 .vk-status { font-size: 12px; color: var(--ink-soft); margin-top: 6px; min-height: 15px; }
+/* 模型/effort 切换（顶栏小徽章 + 设置面板分段选择器） */
+.tb-model { cursor: pointer; font-size: 11px; color: var(--ink-soft); background: var(--accent-soft);
+  border-radius: 8px; padding: 3px 8px; margin-left: 6px; white-space: nowrap; }
+.mdl-seg { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+.mdl-seg button { border: none; background: var(--accent-soft); color: var(--ink);
+  border-radius: 10px; padding: 7px 13px; font-size: 13px; cursor: pointer; font-family: inherit; }
+.mdl-seg button.on { background: var(--accent); color: #fff; font-weight: 600; }
+.mdl-seg button:disabled { opacity: .5; }
+.mdl-status { font-size: 12px; color: var(--ink-soft); margin-top: 6px; min-height: 15px; }
 /* 克克气泡旁的 🔊 听声 */
 .tts-btn { align-self: flex-end; margin: 0 0 3px 4px; border: none; background: transparent;
   cursor: pointer; font-size: 14px; opacity: .4; padding: 2px; line-height: 1; flex-shrink: 0; }
@@ -488,6 +497,7 @@ body {
   <div id="topbar">
     <span class="title" id="tb-title">克克</span>
     <span class="sub" id="tb-sub"></span>
+    <span class="tb-model" id="tb-model" title="现在用的模型，点一下去设置里换"></span>
     <button id="btn-new" title="新对话">＋ 新对话</button>
     <button id="btn-call" title="语音通话" aria-label="语音通话" style="padding:6px 8px;"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="display:block"><path d="M6.6 10.8a13 13 0 0 0 6.6 6.6l2.2-2.2a1.2 1.2 0 0 1 1.2-.28c1 .33 2.06.5 3.14.5A1.26 1.26 0 0 1 21 16.6v3.14A1.26 1.26 0 0 1 19.74 21 17.4 17.4 0 0 1 3 4.26 1.26 1.26 0 0 1 4.26 3H7.4A1.26 1.26 0 0 1 8.66 4.26c0 1.08.17 2.14.5 3.14a1.2 1.2 0 0 1-.28 1.2z"/></svg></button>
     <button id="btn-set" title="美化" style="padding:6px 8px;"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="display:block"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.55-1 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34h.09a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87v.09a1.7 1.7 0 0 0 1.55 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.55 1z"/></svg></button>
@@ -828,6 +838,32 @@ body {
   <div class="av-hint">点圆点选张图当情头；长按清掉换回字牌</div>
   <input type="file" id="av-file" accept="image/*" style="display:none">
 
+  <div class="set-h">跟克克聊天用的脑子</div>
+  <div class="mdl-seg" id="mdl-model-seg">
+    <button type="button" data-model="opus">Opus</button>
+    <button type="button" data-model="sonnet">Sonnet</button>
+    <button type="button" data-model="fable">Fable</button>
+  </div>
+  <div class="mdl-seg" id="mdl-effort-seg">
+    <button type="button" data-effort="low">low</button>
+    <button type="button" data-effort="high">high</button>
+  </div>
+  <div class="mdl-status" id="mdl-status">读取中…</div>
+
+  <div class="set-h">第二个大脑接口（中转 API / Codex / 备用账号，还没接线，先存起来）</div>
+  <div class="mdl-seg" id="prov-slot-seg">
+    <button type="button" data-slot="relay">中转 API</button>
+    <button type="button" data-slot="codex">Codex</button>
+    <button type="button" data-slot="cc2">备用 CC 账号</button>
+  </div>
+  <div class="vk-row"><input type="text" id="prov-label" placeholder="备注名（随便填，比如「某中转站」）" autocomplete="off"></div>
+  <div class="vk-row"><input type="text" id="prov-endpoint" placeholder="endpoint（如 https://xxx/v1，cc2 可不填）" autocomplete="off"></div>
+  <div class="vk-row"><input type="password" id="prov-key" placeholder="api_key / token（cc2 可不填）" autocomplete="off"></div>
+  <div class="vk-row"><input type="text" id="prov-model" placeholder="model 名（可选）" autocomplete="off"></div>
+  <div class="vk-row"><input type="text" id="prov-note" placeholder="备注（cc2 填账号说明/配置路径）" autocomplete="off"></div>
+  <div class="vk-row"><button id="prov-save">保存这个槽位</button></div>
+  <div class="vk-status" id="prov-status">还没接线：先只是存起来，克克看不到你填的 key</div>
+
   <div class="set-h">语音 key（ElevenLabs）</div>
   <div class="vk-row">
     <input type="password" id="vk-in" placeholder="粘贴 sk_…（换账号直接改这里）" autocomplete="off">
@@ -1089,6 +1125,92 @@ $("av-file").addEventListener("change", function () {
   };
   img.src = URL.createObjectURL(f);
 });
+
+/* ---------- 模型/effort 自助切换：看得见跟谁在聊 + 能自己换 ---------- */
+const MODEL_CN = { opus: "Opus", sonnet: "Sonnet", fable: "Fable" };
+async function loadChatModel() {
+  try {
+    const j = await (await fetch("/api/chat/model")).json();
+    if (!j || j.error) return;
+    $("tb-model").textContent = (MODEL_CN[j.model] || j.model) + " · " + j.effort;
+    document.querySelectorAll("#mdl-model-seg button").forEach((b) =>
+      b.classList.toggle("on", b.dataset.model === j.model));
+    document.querySelectorAll("#mdl-effort-seg button").forEach((b) =>
+      b.classList.toggle("on", b.dataset.effort === j.effort));
+    $("mdl-status").textContent = "现在：" + (MODEL_CN[j.model] || j.model) + " · " + j.effort;
+  } catch (e) { /* 拿不到就留空，不影响聊天 */ }
+}
+async function setChatModel(body) {
+  const btns = document.querySelectorAll("#mdl-model-seg button, #mdl-effort-seg button");
+  btns.forEach((b) => (b.disabled = true));
+  $("mdl-status").textContent = "换脑子中…";
+  try {
+    const r = await fetch("/api/chat/model", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (r.ok) { $("mdl-status").textContent = "✓ " + (j.note || "换好了"); loadChatModel(); }
+    else { $("mdl-status").textContent = "✗ " + (j.error || "换不了"); }
+  } catch (e) { $("mdl-status").textContent = "✗ 够不着服务器"; }
+  btns.forEach((b) => (b.disabled = false));
+}
+document.querySelectorAll("#mdl-model-seg button").forEach((b) => {
+  b.onclick = () => setChatModel({ model: b.dataset.model });
+});
+document.querySelectorAll("#mdl-effort-seg button").forEach((b) => {
+  b.onclick = () => setChatModel({ effort: b.dataset.effort });
+});
+$("tb-model").onclick = () => { $("mask").classList.add("on"); $("sheet").classList.add("on"); };
+loadChatModel();
+
+/* ---------- 第二个大脑接口：中转 API / Codex / 备用 CC 账号（她自己填，key 不回吐）---------- */
+let provSlot = "relay";
+let provAll = {};
+function renderProvSlot() {
+  const d = provAll[provSlot] || {};
+  $("prov-label").value = d.label || "";
+  $("prov-endpoint").value = d.endpoint || "";
+  $("prov-model").value = d.model || "";
+  $("prov-note").value = d.note || "";
+  $("prov-key").value = "";
+  $("prov-key").placeholder = d.key_set ? ("已存 " + (d.key_masked || "***") + "，留空=不改") : "api_key / token（cc2 可不填）";
+  $("prov-status").textContent = d.configured ? "这个槽位已经填过了（还没接线，只是存着）" : "这个槽位还没填";
+  document.querySelectorAll("#prov-slot-seg button").forEach((b) =>
+    b.classList.toggle("on", b.dataset.slot === provSlot));
+}
+async function loadProviders() {
+  try {
+    const j = await (await fetch("/api/providers/config")).json();
+    provAll = j.slots || {};
+    renderProvSlot();
+  } catch (e) { /* 拿不到就留空 */ }
+}
+document.querySelectorAll("#prov-slot-seg button").forEach((b) => {
+  b.onclick = () => { provSlot = b.dataset.slot; renderProvSlot(); };
+});
+$("prov-save").onclick = async () => {
+  $("prov-save").disabled = true; $("prov-status").textContent = "存…";
+  try {
+    const body = {
+      slot: provSlot,
+      label: $("prov-label").value.trim(),
+      endpoint: $("prov-endpoint").value.trim(),
+      model: $("prov-model").value.trim(),
+      note: $("prov-note").value.trim(),
+    };
+    const key = $("prov-key").value.trim();
+    if (key) body.api_key = key;  // 留空就不改已存的 key
+    const r = await fetch("/api/providers/config", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (r.ok) { $("prov-status").textContent = "存好了 ✓（还没接线，先只是存起来）"; loadProviders(); }
+    else { const j = await r.json().catch(() => ({})); $("prov-status").textContent = j.error || "存不上"; }
+  } catch (e) { $("prov-status").textContent = "够不着服务器"; }
+  $("prov-save").disabled = false;
+};
+loadProviders();
 
 /* ---------- 语音 key 自助配置：她自己粘/换，嫖两个 ElevenLabs 账号倒着用 ---------- */
 async function loadVoiceKey() {

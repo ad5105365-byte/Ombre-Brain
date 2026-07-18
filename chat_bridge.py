@@ -41,6 +41,7 @@ logger = logging.getLogger("ombre_brain.chat")
 DEFAULT_CWD = os.environ.get("OMBRE_CHAT_CWD", "/opt/keke")
 DEFAULT_HOOK_URL = os.environ.get("OMBRE_CHAT_HOOK_URL", "http://127.0.0.1:8000")
 DEFAULT_MODEL = os.environ.get("OMBRE_CHAT_MODEL", "")
+DEFAULT_EFFORT = os.environ.get("OMBRE_CHAT_EFFORT", "")
 DEFAULT_TIMEOUT = int(os.environ.get("OMBRE_CHAT_TIMEOUT", "600") or "600")
 DEFAULT_IDLE = int(os.environ.get("OMBRE_CHAT_IDLE", "1800") or "1800")
 
@@ -204,11 +205,13 @@ def find_session_jsonl(session_id: str, projects_root: str | None = None) -> str
 class ChatBridge:
     def __init__(self, state_dir: str, cwd: str = DEFAULT_CWD,
                  hook_url: str = DEFAULT_HOOK_URL, model: str = DEFAULT_MODEL,
+                 effort: str = DEFAULT_EFFORT,
                  timeout_s: int = DEFAULT_TIMEOUT, idle_max_s: int = DEFAULT_IDLE):
         self.state_dir = state_dir
         self.cwd = cwd
         self.hook_url = hook_url
         self.model = model
+        self.effort = effort
         self.timeout_s = timeout_s
         self.idle_max_s = idle_max_s
         self.claude_bin = find_claude()
@@ -265,6 +268,8 @@ class ChatBridge:
             "session_id": self.load_session(),
             "idle_seconds": (time.time() - self.last_used) if self.last_used else None,
             "woke_at": getattr(self, "woke_at", None),  # 上次出生/resume 的 unix 时刻
+            "model": self.model or "(默认)",
+            "effort": self.effort or "(默认)",
         }
 
     # --- 进程生命周期 ---
@@ -278,6 +283,12 @@ class ChatBridge:
             self.proc = None
 
     async def _spawn(self, resume_id: str) -> None:
+        # TODO(provider-swap，未接线）：这里永远起本机 `claude` CLI 子进程。
+        # 中转站 API / Codex / 备用 CC 账号的配置已经存在 config 表
+        # （见 server.py 的 provider_relay_*/provider_codex_*/provider_cc2_*，
+        # /api/providers/config 读写），但还没有在这接路由——真要切换执行，
+        # 参考 Tidal_Echo/examples/bridge_any_llm.py 的 OpenAI 兼容 HTTP 循环
+        # 分支，或者给 cc2 槽位在 env 里加 CLAUDE_CONFIG_DIR 指向备用登录态。
         cmd = [
             self.claude_bin, "-p",
             "--input-format", "stream-json",
@@ -287,6 +298,8 @@ class ChatBridge:
         ]
         if self.model:
             cmd += ["--model", self.model]
+        if self.effort:
+            cmd += ["--effort", self.effort]
         if resume_id:
             cmd += ["--resume", resume_id]
         env = dict(os.environ)

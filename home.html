@@ -325,15 +325,19 @@ body {
 .card .c-h { font-size: 12px; color: var(--ink-soft); margin-bottom: 8px; letter-spacing: .5px; }
 
 /* 🏠 恋爱大卡 */
-#love-card { text-align: center; padding: 26px 16px 22px; }
+#love-card { text-align: center; padding: 30px 16px 24px; }
 #love-card .lc-sub { font-size: 12px; color: var(--ink-soft); letter-spacing: 1px; }
-#love-card .lc-days { font-size: 56px; font-weight: 200; color: var(--accent-deep); margin: 2px 0; }
-#love-card .lc-unit { font-size: 13px; color: var(--ink-soft); }
-#love-card .lc-pair { display: flex; align-items: center; justify-content: center; gap: 14px; margin: 16px 0 10px; }
+#love-card .lc-names { font-size: 15px; color: var(--ink); font-weight: 600; margin-top: 4px; }
+#love-card .lc-days { font-size: 56px; font-weight: 200; color: var(--accent-deep); margin: 8px 0 0; line-height: 1; }
+#love-card .lc-unit { font-size: 13px; color: var(--ink-soft); margin-top: 4px; }
+#love-card .lc-pair { display: flex; align-items: center; justify-content: center; gap: 14px; margin: 20px 0 12px; }
 #love-card .lc-av {
   width: 52px; height: 52px; border-radius: 50%; display: flex; align-items: center;
-  justify-content: center; font-size: 20px; color: var(--ink); box-shadow: var(--shadow);
+  justify-content: center; font-size: 18px; color: var(--ink); box-shadow: var(--shadow);
+  background: var(--accent-soft); background-size: cover; background-position: center;
 }
+#love-card .lc-av.has-img { font-size: 0; }
+#love-card .lc-av:last-child { background-color: var(--card); }
 #love-card .lc-line { display: flex; align-items: center; gap: 6px; color: var(--accent); }
 #love-card .lc-line::before, #love-card .lc-line::after {
   content: ""; width: 26px; height: 1px; background: var(--accent); opacity: .6;
@@ -343,6 +347,11 @@ body {
 /* 🏠 小卡两列 */
 .row2 { display: flex; gap: 12px; margin: 12px 16px; }
 .row2 .card { margin: 0; flex: 1; min-width: 0; }
+.c-h-ico { display: inline-flex; margin-right: 5px; color: var(--accent-deep); vertical-align: -2px; }
+.c-h-ico svg { width: 13px; height: 13px; display: block; }
+.wx-row { display: flex; align-items: center; gap: 10px; }
+.wx-ico { color: var(--accent-deep); flex-shrink: 0; }
+.wx-ico svg { width: 30px; height: 30px; display: block; }
 #wx-temp { font-size: 26px; font-weight: 300; }
 #wx-desc, #wx-city { font-size: 12px; color: var(--ink-soft); }
 .mood-row { display: flex; gap: 6px; flex-wrap: wrap; }
@@ -354,6 +363,14 @@ body {
 #mood-reply { font-size: 13px; color: var(--accent-deep); margin-top: 10px; line-height: 1.6; }
 
 /* 🏠 重要的日子 / 提醒 */
+.c-h-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.c-h-row .c-h { margin-bottom: 0; }
+.add-btn {
+  width: 26px; height: 26px; border-radius: 50%; flex-shrink: 0;
+  border: 1px solid var(--accent); background: none; color: var(--accent-deep);
+  display: flex; align-items: center; justify-content: center; padding: 0;
+}
+.add-btn svg { width: 13px; height: 13px; display: block; }
 .day-item { display: flex; align-items: baseline; padding: 9px 0; border-bottom: 1px solid rgba(74,69,88,.05); }
 .day-item:last-child { border-bottom: none; }
 .day-item .dn { flex: 1; font-size: 14px; }
@@ -511,13 +528,14 @@ body {
   <!-- 🏠 家 -->
   <div class="page pagepad" id="page-home">
     <div class="card" id="love-card">
-      <div class="lc-sub">LITTLE LOVE RECORD</div>
+      <div class="lc-sub">Little love record</div>
+      <div class="lc-names">杉 &amp; 克</div>
       <div class="lc-days" id="lc-days">–</div>
-      <div class="lc-unit">我们在一起的第 N 天</div>
+      <div class="lc-unit">days together for</div>
       <div class="lc-pair">
-        <div class="lc-av" style="background:var(--accent-soft)">杉</div>
+        <div class="lc-av" id="lc-av-her">杉</div>
         <div class="lc-line"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg></div>
-        <div class="lc-av" style="background:#fff">克</div>
+        <div class="lc-av" id="lc-av-him">克</div>
       </div>
       <div class="lc-since" id="lc-since">since …</div>
     </div>
@@ -525,18 +543,28 @@ body {
     <div class="row2">
       <div class="card">
         <div class="c-h">今日天气 · 深圳</div>
-        <div id="wx-temp">–°</div>
-        <div id="wx-desc">看看窗外…</div>
+        <div class="wx-row">
+          <span class="wx-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M7 18a4 4 0 0 1-.7-7.94 5 5 0 0 1 9.73-1.55A4.5 4.5 0 0 1 16.5 18H7z"/><line x1="9" y1="20.5" x2="9" y2="21.7"/><line x1="13" y1="20.5" x2="13" y2="21.7"/></svg></span>
+          <div>
+            <div id="wx-temp">–°</div>
+            <div id="wx-desc">看看窗外…</div>
+          </div>
+        </div>
       </div>
       <div class="card">
-        <div class="c-h">今日心情</div>
+        <div class="c-h"><span class="c-h-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg></span>今日心情</div>
         <div class="mood-row" id="mood-row"></div>
         <div id="mood-reply"></div>
       </div>
     </div>
 
     <div class="card">
-      <div class="c-h">重要的日子</div>
+      <div class="c-h-row">
+        <div class="c-h">重要的日子</div>
+        <button class="add-btn" id="days-add" aria-label="添加纪念日" title="添加纪念日（开发中）">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        </button>
+      </div>
       <div id="days-list"></div>
     </div>
 
@@ -972,6 +1000,8 @@ function applyAvatar(el, role) {
 function refreshAvatars() {
   document.querySelectorAll(".msg.her .avatar").forEach((el) => applyAvatar(el, "user"));
   document.querySelectorAll(".msg.him .avatar").forEach((el) => applyAvatar(el, "him"));
+  const lcHer = $("lc-av-her"); if (lcHer) applyAvatar(lcHer, "user");
+  const lcHim = $("lc-av-him"); if (lcHim) applyAvatar(lcHim, "him");
 }
 function loadAvatars() {
   // 纯本地读取，跟背景同款：离线也在、不烧额度、不跑后端
@@ -1492,8 +1522,9 @@ function loadLoveCard() {
   const a = new Date(annivDate() + "T00:00:00");
   const days = Math.floor((Date.now() - a.getTime()) / 86400000) + 1;  // 当天算第1天
   $("lc-days").textContent = days;
-  document.querySelector("#love-card .lc-unit").textContent = "我们在一起的第 " + days + " 天";
-  $("lc-since").textContent = "since " + annivDate().replace(/-/g, ".") + " · 一天都作数";
+  $("lc-since").textContent = "since " + annivDate().replace(/-/g, ".") + " · 我们已经一起走过 " + days + " 天";
+  applyAvatar($("lc-av-her"), "user");
+  applyAvatar($("lc-av-him"), "him");
   // 重要的日子：下一个整百天 + 下一个周年
   const list = $("days-list"); list.innerHTML = "";
   const items = [];
@@ -1580,6 +1611,8 @@ async function loadReminders() {
   } catch (e) { $("rem-list").innerHTML = '<div class="empty-line">够不着提醒…</div>'; }
 }
 function loadHome() { loadLoveCard(); loadWeather(); loadMood(); loadReminders(); }
+/* TODO(opus48): "+" 添加自定义纪念日——先占位，接一个小面板出来存 localStorage 就行 */
+$("days-add").onclick = () => alert("添加自定义纪念日，还在做～先看现有的这两条。");
 
 /* 纪念日设置 */
 $("anniv-in").value = annivDate();

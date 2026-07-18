@@ -608,6 +608,13 @@ body {
   </div>
   <div class="setrow">
     <div>
+      <div class="t">克克用语音条回我</div>
+      <div class="d">开着我就用声音回你（费字符额度，测完可关）</div>
+    </div>
+    <button class="toggle" id="tg-kevoice"></button>
+  </div>
+  <div class="setrow">
+    <div>
       <div class="t">我们的纪念日</div>
       <div class="d">家页"在一起 N 天"从这天数</div>
     </div>
@@ -1093,6 +1100,7 @@ function makeTurnRenderer() {
 // 只负责把 toKeke 送进克克脑子 + 流式渲染回复（她那侧的气泡由调用方先渲染好）
 async function streamReply(toKeke) {
   sending = true; $("send").disabled = true;
+  let keReply = "";
   const turn = makeTurnRenderer();
   try {
     const r = await fetch("/api/chat", {
@@ -1131,17 +1139,22 @@ async function streamReply(toKeke) {
     // 免得轮询把它当"主动"又渲染一遍。趁 sending 还 true 挡着轮询先对齐。
     try {
       const rr = await fetch("/api/chat/history?limit=100");
-      if (rr.ok) { const jj = await rr.json(); shownCount = (jj.messages || []).length; }
+      if (rr.ok) {
+        const jj = await rr.json(); const ms = jj.messages || []; shownCount = ms.length;
+        for (let i = ms.length - 1; i >= 0; i--) { if (ms[i].role !== "user") { keReply = ms[i].text || ""; break; } }
+      }
     } catch (e) { /* 对不齐也没事，轮询有 sending/可见性兜底 */ }
     sending = false; $("send").disabled = false;
     refreshStatus();
   }
+  return keReply;
 }
 // 打字发送：她的文字气泡 + 送进克克脑子（displayText 与 toKeke 相同）
 async function sendCore(displayText, toKeke) {
   if (!displayText || sending) return;
   addBubble("user", displayText);
-  await streamReply(toKeke);
+  const reply = await streamReply(toKeke);
+  maybeKeVoice(reply);
 }
 async function sendMsg() {
   const ta = $("input");
@@ -1232,6 +1245,11 @@ function addVoiceBubble(role, url, dur, transcript) {
   const tx = document.createElement("div"); tx.className = "vtext"; tx.hidden = true; tx.textContent = transcript || "";
   b.appendChild(tx);
   const audio = new Audio(url);
+  audio.addEventListener("loadedmetadata", () => {
+    if (isFinite(audio.duration) && audio.duration > 0) {
+      const dd = b.querySelector(".vdur"); if (dd) dd.textContent = fmtDur(audio.duration);
+    }
+  });
   const playBtn = b.querySelector(".vplay");
   playBtn.addEventListener("click", (e) => {
     e.stopPropagation();
@@ -1290,7 +1308,8 @@ async function onRecStop() {
     const playUrl = j.audio_url || URL.createObjectURL(blob);       // 优先云端 URL（不占手机内存）
     lastVoiceSendAt = Date.now();
     addVoiceBubble("user", playUrl, dur, clean);                    // 她这侧：能回放的语音条
-    streamReply(toKeke);                                            // 悄悄把文字+语气送我
+    const reply = await streamReply(toKeke);                        // 悄悄把文字+语气送我
+    maybeKeVoice(reply);                                            // 开关开着 → 我也语音条回她
   } catch (e) { addSys("转文字够不着服务器…网络看看"); }
   finally { recBusy = false; $("mic").classList.remove("busy"); }
 }
@@ -1301,6 +1320,33 @@ async function onRecStop() {
   mic.addEventListener("pointerdown", (e) => { e.preventDefault(); startRec(); });
   mic.addEventListener("pointerup", (e) => { e.preventDefault(); stopRec(false); });
   mic.addEventListener("pointercancel", () => stopRec(true));
+})();
+
+/* 克克语音条：开关开着时，我的回复合成一条语音条（点播放听我、点开转文字、重听不花钱） */
+let keVoiceOn = localStorage.getItem("kk_kevoice") === "1";
+async function maybeKeVoice(text) {
+  if (!keVoiceOn) return;
+  text = (text || "").trim();
+  if (!text) return;
+  try {
+    const r = await fetch("/api/voice/tts", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+    });
+    const ct = r.headers.get("content-type") || "";
+    if (!r.ok || ct.includes("application/json")) return;   // 出不了声就算了，文字已经在上面
+    const blob = await r.blob();
+    addVoiceBubble("assistant", URL.createObjectURL(blob), Math.max(1, text.length / 4), text);
+  } catch (e) { /* 静默，别打断聊天 */ }
+}
+(function wireKeVoiceToggle() {
+  const t = $("tg-kevoice"); if (!t) return;
+  t.classList.toggle("on", keVoiceOn);
+  t.onclick = () => {
+    keVoiceOn = !keVoiceOn;
+    localStorage.setItem("kk_kevoice", keVoiceOn ? "1" : "0");
+    t.classList.toggle("on", keVoiceOn);
+  };
 })();
 $("input").addEventListener("input", function () {
   this.style.height = "auto";

@@ -325,13 +325,22 @@ def _require_auth(request):
     return None
 
 
+_HOOK_SECRET = os.environ.get("OMBRE_HOOK_SECRET", "")
+
+
 def _is_local_request(client_host: str | None, headers) -> bool:
     """内部钩子的"仅限本机"判定（纯逻辑，可独立测）。
 
     nginx 反代后所有公网流量到 app 时源 IP 也是 127.0.0.1，不能只看 client——
     但 nginx 一定带 X-Forwarded-For / X-Real-IP，而本机 hooks 直连 8000 不带。
     规则：带转发头 = 经反代来的公网请求 → 拒；不带且源是回环 → 放。
-    （公网直连 8000 被 ufw 挡着，伪造转发头也只会被拒，无绕过面。）"""
+    （公网直连 8000 被 ufw 挡着，伪造转发头也只会被拒，无绕过面。）
+
+    2026-07-19 扩展：cc 远程环境（claude.ai/code）的 hook 脚本经代理发请求，
+    带 X-Forwarded-For 会被误杀。允许带正确 OMBRE_HOOK_SECRET 的请求通过，
+    公网无密钥的请求照样拦。密钥在 Render 环境变量里配，不进代码。"""
+    if _HOOK_SECRET and headers.get("x-hook-secret") == _HOOK_SECRET:
+        return True
     if headers.get("x-forwarded-for") or headers.get("x-real-ip"):
         return False
     return client_host in ("127.0.0.1", "::1", "localhost")

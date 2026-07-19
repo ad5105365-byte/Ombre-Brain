@@ -99,10 +99,14 @@ def main():
 def _report(base_url, note):
     try:
         payload = json.dumps({"note": note}).encode("utf-8")
+        headers = {"Content-Type": "application/json"}
+        secret = os.environ.get("OMBRE_HOOK_SECRET", "")
+        if secret:
+            headers["X-Hook-Secret"] = secret
         req = urllib.request.Request(
             f"{base_url}/hook-log",
             data=payload,
-            headers={"Content-Type": "application/json"},
+            headers=headers,
             method="POST",
         )
         with urllib.request.urlopen(req, timeout=5):

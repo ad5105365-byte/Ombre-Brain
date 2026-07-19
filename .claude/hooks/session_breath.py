@@ -89,10 +89,18 @@ def main():
     _report(base_url, " ".join(notes))
 
 
+def _build_headers():
+    h = {"Accept": "text/plain"}
+    secret = os.environ.get("OMBRE_HOOK_SECRET", "")
+    if secret:
+        h["X-Hook-Secret"] = secret
+    return h
+
+
 def _call_endpoint(base_url, path):
     req = urllib.request.Request(
         f"{base_url}{path}",
-        headers={"Accept": "text/plain"},
+        headers=_build_headers(),
         method="GET",
     )
     with urllib.request.urlopen(req, timeout=25) as response:
@@ -102,10 +110,14 @@ def _call_endpoint(base_url, path):
 def _report(base_url, note):
     try:
         payload = json.dumps({"note": note}).encode("utf-8")
+        headers = {"Content-Type": "application/json"}
+        secret = os.environ.get("OMBRE_HOOK_SECRET", "")
+        if secret:
+            headers["X-Hook-Secret"] = secret
         req = urllib.request.Request(
             f"{base_url}/hook-log",
             data=payload,
-            headers={"Content-Type": "application/json"},
+            headers=headers,
             method="POST",
         )
         with urllib.request.urlopen(req, timeout=5):

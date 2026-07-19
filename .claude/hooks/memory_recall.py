@@ -76,10 +76,14 @@ def main():
     timeout = 25 if is_memory_question else 8
 
     payload = json.dumps({"query": user_msg}).encode("utf-8")
+    headers = {"Content-Type": "application/json"}
+    secret = os.environ.get("OMBRE_HOOK_SECRET", "")
+    if secret:
+        headers["X-Hook-Secret"] = secret
     req = urllib.request.Request(
         f"{base_url}/recall-hook",
         data=payload,
-        headers={"Content-Type": "application/json"},
+        headers=headers,
         method="POST",
     )
     # 冷却只在真的注入了记忆之后才烧满 300 秒；扑空或失败只冷却 60 秒。
@@ -110,10 +114,14 @@ def main():
 def _report(base_url, note):
     try:
         payload = json.dumps({"note": note}).encode("utf-8")
+        headers = {"Content-Type": "application/json"}
+        secret = os.environ.get("OMBRE_HOOK_SECRET", "")
+        if secret:
+            headers["X-Hook-Secret"] = secret
         req = urllib.request.Request(
             f"{base_url}/hook-log",
             data=payload,
-            headers={"Content-Type": "application/json"},
+            headers=headers,
             method="POST",
         )
         with urllib.request.urlopen(req, timeout=1.5):

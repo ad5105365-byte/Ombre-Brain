@@ -44,6 +44,31 @@ def test_forged_forward_header_from_outside_still_denied():
     assert server._is_local_request("5.6.7.8", {"x-forwarded-for": "127.0.0.1"}) is False
 
 
+def test_hook_secret_bypasses_proxy_check(monkeypatch):
+    """cc 远程环境带正确密钥的请求应放行，即使有转发头。"""
+    monkeypatch.setattr(server, "_HOOK_SECRET", "test-secret-123")
+    assert server._is_local_request("127.0.0.1", {
+        "x-forwarded-for": "1.2.3.4",
+        "x-hook-secret": "test-secret-123",
+    }) is True
+
+
+def test_wrong_hook_secret_still_denied(monkeypatch):
+    monkeypatch.setattr(server, "_HOOK_SECRET", "test-secret-123")
+    assert server._is_local_request("127.0.0.1", {
+        "x-forwarded-for": "1.2.3.4",
+        "x-hook-secret": "wrong-secret",
+    }) is False
+
+
+def test_no_hook_secret_configured_ignores_header():
+    """服务端没配密钥时，请求带什么 header 都不算数。"""
+    assert server._is_local_request("127.0.0.1", {
+        "x-forwarded-for": "1.2.3.4",
+        "x-hook-secret": "anything",
+    }) is False
+
+
 # --- _require_local 包装 ---
 
 def test_require_local_allows_local():

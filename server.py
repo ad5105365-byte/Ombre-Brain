@@ -1317,7 +1317,8 @@ async def recall_hook(request):
         # 也避免搞正事时被亲密记忆勾出戏（2026-07-16 搭 VPS 整晚冒大富翁/性幻想的病根）。
         # gated 时只留时间+手机这条恒温基线，并跳过昂贵的搜索。
         route = _route_query(user_msg)
-        if route in ("suppress", "tool_only"):
+        if route == "suppress":
+            # 纯寒暄/语气/emoji → 只留时间+手机恒温基线，跳过昂贵搜索
             now_block = _now_line()
             phone_line = _phone_recent_line()
             if phone_line:
@@ -1326,7 +1327,7 @@ async def recall_hook(request):
             if checkin_line:
                 now_block += f"\n💬 [打卡] {checkin_line}"
             result = f"<心记浮现>\n{now_block}\n</心记浮现>"
-            _log_hook("recall", f"gated:{route}", user_msg, 0, len(result), started=t0)
+            _log_hook("recall", "gated:suppress", user_msg, 0, len(result), started=t0)
             return PlainTextResponse(result)
 
         # "7月5号干嘛了" must find the bucket named 2026-07-05 —
@@ -1335,20 +1336,31 @@ async def recall_hook(request):
         date_hints = _expand_date_expressions(user_msg)
         search_msg = user_msg + (" " + " ".join(date_hints) if date_hints else "")
 
-        # Search via keyword + vector dual channel — run both concurrently:
-        # each takes seconds on its own, and serially they eat half the
-        # client hook's 8s budget before dehydration even starts
-        # 关键词 + 向量双通道并排跑：串行会在脱水开始前就吃掉一半时间预算
-        async def _safe_vector_search():
-            try:
-                return await embedding_engine.search_similar(user_msg, top_k=20)
-            except Exception:
-                return []
+        if route == "tool_only":
+            # 技术/运维轮：别拿生活/亲密记忆瞎猜，但底线/规矩不能熄。
+            # 直接取 pinned 桶（不靠相关性，保证红线可靠在场），跳过向量通道省时。
+            # 下面的域门控会再滤掉其中"恋爱"域关系记忆，只留规矩——技术轮
+            # 恰好只冒该拦我的规矩、不冒亲密（2026-07-24 三分门一刀切误砍红线的修法）。
+            all_pinned = await bucket_mgr.list_all(include_archive=False)
+            matches = [
+                b for b in all_pinned
+                if b["metadata"].get("pinned") and not b["metadata"].get("dormant")
+            ]
+            for b in matches:
+                b.setdefault("score", 100)
+            vector_results = []
+        else:
+            # retrieve：关键词 + 向量双通道并排跑（串行会在脱水前吃掉一半预算）
+            async def _safe_vector_search():
+                try:
+                    return await embedding_engine.search_similar(user_msg, top_k=20)
+                except Exception:
+                    return []
 
-        matches, vector_results = await asyncio.gather(
-            bucket_mgr.search(search_msg, limit=20),
-            _safe_vector_search(),
-        )
+            matches, vector_results = await asyncio.gather(
+                bucket_mgr.search(search_msg, limit=20),
+                _safe_vector_search(),
+            )
         # Exclude dormant
         matches = [b for b in matches if not b["metadata"].get("dormant")]
 
@@ -1367,6 +1379,19 @@ async def recall_hook(request):
                         matched_ids.add(bucket_id)
         except Exception:
             pass
+
+        # ── 语境门控（recall_gate.gate_memories，纯函数便于测试）──
+        # tool_only 轮上面已收窄到只剩 pinned；这里再按语境滤"恋爱"域：
+        # 非亲密语境 + 非明确回忆意图 → 不冒恋爱域亲密记忆（治闲聊/技术轮
+        # 乱冒 do 的记忆）。底线在心理/自省域不受影响；她主动问往事永远放行。
+        from recall_gate import gate_memories
+        explicit_recall = bool(date_hints) or any(c in user_msg for c in _RECALL_CUES)
+        matches = gate_memories(
+            matches,
+            route=route,
+            is_intimate_context=_is_intimate_context(user_msg),
+            explicit_recall=explicit_recall,
+        )
 
         # Buckets literally named with an asked-about date outrank everything:
         # fuzzy scoring puts 07-03 and 07-05 one character apart, and a recent
@@ -1390,7 +1415,7 @@ async def recall_hook(request):
         # 它把"我们"框进一张字典——我们的情话（do 之类）根本不在表上、也没法加
         # （操→操作、干→干活，中文无词边界）。改成信任相关性排序 + 克克自己看场合：
         # 该不该冒亲密记忆，看它是否真贴这句话、以及此刻是不是那个氛围，不看字面词。
-        # 技术/寒暄轮已被三分门 tool_only/suppress 提前挡在上面，到这儿都是 retrieve 轮。
+        # suppress 轮已提前返回；tool_only 轮已被上面的取桶+域门控收窄成只剩规矩。
 
         # ③ 人物卡侧栏：她点到某人，就把那人的卡揪出来置顶怼脸上，别让它跟普通
         # 记忆挤 top-3、被挤掉就认错人（治"莉莉姐→领导/姐"）。走原文，不脱水。
@@ -1608,6 +1633,7 @@ async def _merge_or_create(
     valence: float,
     arousal: float,
     name: str = "",
+    source: str = "",
 ) -> tuple[str, bool]:
     """
     Check if a similar bucket exists for merging; merge if so, create if not.
@@ -1670,6 +1696,7 @@ async def _merge_or_create(
         valence=valence,
         arousal=arousal,
         name=name or None,
+        source=source,
     )
     # --- Generate embedding for new bucket ---
     try:
@@ -2474,10 +2501,12 @@ async def checkup(date: str = "") -> str:
 
 
 @mcp.tool()
-async def grow(content: str, diary_date: str = "") -> str:
+async def grow(content: str, diary_date: str = "", source: str = "") -> str:
     """日记归档,自动拆分为多桶。短内容(<30字)走快速路径。
     diary_date=存日记时把日期(YYYY-MM-DD)显式传进来,拆出的每块都会挂上
-    【日记 日期】门牌进日历——比赌正文开头格式对不对可靠。不传则自动从正文识别。"""
+    【日记 日期】门牌进日历——比赌正文开头格式对不对可靠。不传则自动从正文识别。
+    source=原文坐标(可选),指回这批记忆出自哪段对话(如 session id/端口+行号),
+    拆出的每块都挂上,供日后按坐标回查原文;不传=不挂坐标(停在摘要,不影响流程)。"""
     await decay_engine.ensure_started()
 
     if not content or not content.strip():
@@ -2520,6 +2549,7 @@ async def grow(content: str, diary_date: str = "") -> str:
             valence=analysis.get("valence", 0.5),
             arousal=analysis.get("arousal", 0.3),
             name=_diary_name(analysis.get("suggested_name", ""), diary_date),
+            source=source,
         )
         action = "合并" if is_merged else "新建"
         return f"{action} → {result_name} | {','.join(analysis.get('domain', []))} V{analysis.get('valence', 0.5):.1f}/A{analysis.get('arousal', 0.3):.1f}"
@@ -2551,6 +2581,7 @@ async def grow(content: str, diary_date: str = "") -> str:
                 valence=item.get("valence", 0.5),
                 arousal=item.get("arousal", 0.3),
                 name=item_name,
+                source=source,
             )
 
             if is_merged:

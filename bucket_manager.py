@@ -111,6 +111,7 @@ class BucketManager:
         pinned: bool = False,
         protected: bool = False,
         created: str = None,
+        source: str = "",
     ) -> str:
         """
         Create a new memory bucket, return bucket ID.
@@ -156,6 +157,11 @@ class BucketManager:
             metadata["pinned"] = True
         if protected:
             metadata["protected"] = True
+        # --- Original-text coordinate / 可回查原文坐标 ---
+        # 指回这条记忆出自哪段对话（如 session id + 行号），供按需回查原文。
+        # 空 = 没坐标（早期窗口/未穿线的桶），停在摘要，不影响原有流程。
+        if source:
+            metadata["source"] = source
 
         # --- Assemble Markdown file (frontmatter + body) ---
         # --- 组装 Markdown 文件 ---
@@ -286,6 +292,8 @@ class BucketManager:
             post["digested"] = bool(kwargs["digested"])
         if "model_valence" in kwargs:
             post["model_valence"] = max(0.0, min(1.0, float(kwargs["model_valence"])))
+        if "source" in kwargs:
+            post["source"] = kwargs["source"]  # 原文坐标，可后补
 
         # --- Auto-refresh activation time / 自动刷新激活时间 ---
         post["last_active"] = now_iso()
